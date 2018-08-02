@@ -167,6 +167,20 @@ Return the binary data as unibyte string."
       (#xFA (insert (format "LD A,(nn)\n")))
       (#x3E (insert (format "LD A,#0x%02x\n" (eboy-get-byte))) (eboy-inc-pc 1))
 
+      ;; LD n,A - Put value A into n.
+      ;; n = A,B,C,D,E,H,L,(BC),(DE),(HL),(nn)
+      ;; nn = two byte immediate value. (LS byte first.)
+      (#x47 (insert (format "LD B,A")))                      ;; 4
+      (#x4F (insert (format "LD C,A")))                      ;; 4
+      (#x57 (insert (format "LD D,A")))                      ;; 4
+      (#x5F (insert (format "LD E,A")))                      ;; 4
+      (#x67 (insert (format "LD H,A")))                      ;; 4
+      (#x6F (insert (format "LD L,A")))                      ;; 4
+      (#x02 (insert (format "LD (BC),A\n")))                   ;; 8
+      (#x12 (insert (format "LD (DE),A\n")))                   ;; 8
+      (#x77 (insert (format "LD (HL),A\n")))                   ;; 8
+      (#xEA (insert (format "LD (nn),A\n")))                   ;; 16
+
       ;; Put value at address $FF00 + register C into A.
       (#xF2 (insert (format "LD A,($FF00+C)")))
       ;; Put A into address $FF00 + register C.
@@ -502,169 +516,175 @@ Return the binary data as unibyte string."
       (#x1F (insert (format "RRA -/- \n"))) ;; 4
 
 
-      (#xCB (insert (format "2byte opcode CB %02x" (eboy-get-byte))))
-      ;; ;; SWAP n - Swap upper & lower nibles of n.
-      ;; ;; Flags affected:
-      ;; ;; Z - Set if result is zero.
-      ;; ;; N - Reset.
-      ;; ;; H - Reset.
-      ;; ;; C - Reset.
-      ;;    (#x37 (insert (format "SWAP A\n"))) ;; 8
-      ;;    (#x30 (insert (format "SWAP B\n"))) ;; 8
-      ;;    (#x31 (insert (format "SWAP C\n"))) ;; 8
-      ;;    (#x32 (insert (format "SWAP D\n"))) ;; 8
-      ;;    (#x33 (insert (format "SWAP E\n"))) ;; 8
-      ;;    (#x34 (insert (format "SWAP H\n"))) ;; 8
-      ;;    (#x35 (insert (format "SWAP L\n"))) ;; 8
-      ;;    (#x36 (insert (format "SWAP (HL) \n")));; 16
+      (#xCB (insert (format "2byte opcode CB: " ))
+            (let ((bc-opcode (eboy-get-byte)))
+              (eboy-inc-pc 1)
+              (cl-case bc-opcode
+                ;; SWAP n - Swap upper & lower nibles of n.
+                ;; Flags affected:
+                ;; Z - Set if result is zero.
+                ;; N - Reset.
+                ;; H - Reset.
+                ;; C - Reset.
+                (#x37 (insert (format "SWAP A\n"))) ;; 8
+                (#x30 (insert (format "SWAP B\n"))) ;; 8
+                (#x31 (insert (format "SWAP C\n"))) ;; 8
+                (#x32 (insert (format "SWAP D\n"))) ;; 8
+                (#x33 (insert (format "SWAP E\n"))) ;; 8
+                (#x34 (insert (format "SWAP H\n"))) ;; 8
+                (#x35 (insert (format "SWAP L\n"))) ;; 8
+                (#x36 (insert (format "SWAP (HL) \n")));; 16
 
-      ;; ;; RLC n - Rotate n left. Old bit 7 to Carry flag.
-      ;; ;; Flags affected:
-      ;; ;; Z - Set if result is zero.
-      ;; ;; N - Reset.
-      ;; ;; H - Reset.
-      ;; ;; C - Contains old bit 7 data.
-      ;;    (#x07 (insert (format "RLC A\n"))) ;; 8
-      ;;    (#x00 (insert (format "RLC B\n"))) ;; 8
-      ;;    (#x01 (insert (format "RLC C\n"))) ;; 8
-      ;;    (#x02 (insert (format "RLC D\n"))) ;; 8
-      ;;    (#x03 (insert (format "RLC E\n"))) ;; 8
-      ;;    (#x04 (insert (format "RLC H\n"))) ;; 8
-      ;;    (#x05 (insert (format "RLC L\n"))) ;; 8
-      ;;    (#x06 (insert (format "RLC (HL) \n")));; 16
+                ;; RLC n - Rotate n left. Old bit 7 to Carry flag.
+                ;; Flags affected:
+                ;; Z - Set if result is zero.
+                ;; N - Reset.
+                ;; H - Reset.
+                ;; C - Contains old bit 7 data.
+                (#x07 (insert (format "RLC A\n"))) ;; 8
+                (#x00 (insert (format "RLC B\n"))) ;; 8
+                (#x01 (insert (format "RLC C\n"))) ;; 8
+                (#x02 (insert (format "RLC D\n"))) ;; 8
+                (#x03 (insert (format "RLC E\n"))) ;; 8
+                (#x04 (insert (format "RLC H\n"))) ;; 8
+                (#x05 (insert (format "RLC L\n"))) ;; 8
+                (#x06 (insert (format "RLC (HL) \n")));; 16
 
-      ;; ;; RL n - Rotate n left through Carry flag.
-      ;; ;; Flags affected:
-      ;; ;; Z - Set if result is zero.
-      ;; ;; N - Reset.
-      ;; ;; H - Reset.
-      ;; ;; C - Contains old bit 7 data.
-      ;;    (#x17 (insert (format "RL A\n"))) ;; 8
-      ;;    (#x10 (insert (format "RL B\n"))) ;; 8
-      ;;    (#x11 (insert (format "RL C\n"))) ;; 8
-      ;;    (#x12 (insert (format "RL D\n"))) ;; 8
-      ;;    (#x13 (insert (format "RL E\n"))) ;; 8
-      ;;    (#x14 (insert (format "RL H\n"))) ;; 8
-      ;;    (#x15 (insert (format "RL L\n"))) ;; 8
-      ;;    (#x16 (insert (format "RL (HL) \n")));; 16
+                ;; RL n - Rotate n left through Carry flag.
+                ;; Flags affected:
+                ;; Z - Set if result is zero.
+                ;; N - Reset.
+                ;; H - Reset.
+                ;; C - Contains old bit 7 data.
+                (#x17 (insert (format "RL A\n"))) ;; 8
+                (#x10 (insert (format "RL B\n"))) ;; 8
+                (#x11 (insert (format "RL C\n"))) ;; 8
+                (#x12 (insert (format "RL D\n"))) ;; 8
+                (#x13 (insert (format "RL E\n"))) ;; 8
+                (#x14 (insert (format "RL H\n"))) ;; 8
+                (#x15 (insert (format "RL L\n"))) ;; 8
+                (#x16 (insert (format "RL (HL) \n")));; 16
 
-      ;; ;; RRC n -  Rotate n right. Old bit 0 to Carry flag.
-      ;; ;; Flags affected:
-      ;; ;; Z - Set if result is zero.
-      ;; ;; N - Reset.
-      ;; ;; H - Reset.
-      ;; ;; C - Contains old bit 0 data.
-      ;;    (#x0F (insert (format "RRC A\n"))) ;; 8
-      ;;    (#x08 (insert (format "RRC B\n"))) ;; 8
-      ;;    (#x09 (insert (format "RRC C\n"))) ;; 8
-      ;;    (#x0A (insert (format "RRC D\n"))) ;; 8
-      ;;    (#x0B (insert (format "RRC E\n"))) ;; 8
-      ;;    (#x0C (insert (format "RRC H\n"))) ;; 8
-      ;;    (#x0D (insert (format "RRC L\n"))) ;; 8
-      ;;    (#x0E (insert (format "RRC (HL) \n")));; 16
+                ;; RRC n -  Rotate n right. Old bit 0 to Carry flag.
+                ;; Flags affected:
+                ;; Z - Set if result is zero.
+                ;; N - Reset.
+                ;; H - Reset.
+                ;; C - Contains old bit 0 data.
+                (#x0F (insert (format "RRC A\n"))) ;; 8
+                (#x08 (insert (format "RRC B\n"))) ;; 8
+                (#x09 (insert (format "RRC C\n"))) ;; 8
+                (#x0A (insert (format "RRC D\n"))) ;; 8
+                (#x0B (insert (format "RRC E\n"))) ;; 8
+                (#x0C (insert (format "RRC H\n"))) ;; 8
+                (#x0D (insert (format "RRC L\n"))) ;; 8
+                (#x0E (insert (format "RRC (HL) \n")));; 16
 
-      ;; ;; RR n - Rotate n right through Carry flag.
-      ;; ;; Flags affected:
-      ;; ;; Z - Set if result is zero.
-      ;; ;; N - Reset.
-      ;; ;; H - Reset.
-      ;; ;; C - Contains old bit 0 data.
-      ;;    (#x1F (insert (format "RR A\n"))) ;; 8
-      ;;    (#x18 (insert (format "RR B\n"))) ;; 8
-      ;;    (#x19 (insert (format "RR C\n"))) ;; 8
-      ;;    (#x1A (insert (format "RR D\n"))) ;; 8
-      ;;    (#x1B (insert (format "RR E\n"))) ;; 8
-      ;;    (#x1C (insert (format "RR H\n"))) ;; 8
-      ;;    (#x1D (insert (format "RR L\n"))) ;; 8
-      ;;    (#x1E (insert (format "RR (HL) \n")));; 16
+                ;; RR n - Rotate n right through Carry flag.
+                ;; Flags affected:
+                ;; Z - Set if result is zero.
+                ;; N - Reset.
+                ;; H - Reset.
+                ;; C - Contains old bit 0 data.
+                (#x1F (insert (format "RR A\n"))) ;; 8
+                (#x18 (insert (format "RR B\n"))) ;; 8
+                (#x19 (insert (format "RR C\n"))) ;; 8
+                (#x1A (insert (format "RR D\n"))) ;; 8
+                (#x1B (insert (format "RR E\n"))) ;; 8
+                (#x1C (insert (format "RR H\n"))) ;; 8
+                (#x1D (insert (format "RR L\n"))) ;; 8
+                (#x1E (insert (format "RR (HL) \n")));; 16
 
-      ;; ;; SLA n - Shift n left into Carry. LSB of n set to 0.
-      ;; ;; Flags affected:
-      ;; ;; Z - Set if result is zero.
-      ;; ;; N - Reset.
-      ;; ;; H - Reset.
-      ;; ;; C - Contains old bit 7 data.
-      ;;    (#x27 (insert (format "SLA A\n"))) ;; 8
-      ;;    (#x20 (insert (format "SLA B\n"))) ;; 8
-      ;;    (#x21 (insert (format "SLA C\n"))) ;; 8
-      ;;    (#x22 (insert (format "SLA D\n"))) ;; 8
-      ;;    (#x23 (insert (format "SLA E\n"))) ;; 8
-      ;;    (#x24 (insert (format "SLA H\n"))) ;; 8
-      ;;    (#x25 (insert (format "SLA L\n"))) ;; 8
-      ;;    (#x26 (insert (format "SLA (HL) \n")));; 16
+                ;; SLA n - Shift n left into Carry. LSB of n set to 0.
+                ;; Flags affected:
+                ;; Z - Set if result is zero.
+                ;; N - Reset.
+                ;; H - Reset.
+                ;; C - Contains old bit 7 data.
+                (#x27 (insert (format "SLA A\n"))) ;; 8
+                (#x20 (insert (format "SLA B\n"))) ;; 8
+                (#x21 (insert (format "SLA C\n"))) ;; 8
+                (#x22 (insert (format "SLA D\n"))) ;; 8
+                (#x23 (insert (format "SLA E\n"))) ;; 8
+                (#x24 (insert (format "SLA H\n"))) ;; 8
+                (#x25 (insert (format "SLA L\n"))) ;; 8
+                (#x26 (insert (format "SLA (HL) \n")));; 16
 
-      ;; ;; SRA n - Shift n right into Carry. MSB doesn't change.
-      ;; ;; Flags affected:
-      ;; ;; Z - Set if result is zero.
-      ;; ;; N - Reset.
-      ;; ;; H - Reset.
-      ;; ;; C - Contains old bit 0 data.
-      ;;    (#x2F (insert (format "SRA A\n"))) ;; 8
-      ;;    (#x28 (insert (format "SRA B\n"))) ;; 8
-      ;;    (#x29 (insert (format "SRA C\n"))) ;; 8
-      ;;    (#x2A (insert (format "SRA D\n"))) ;; 8
-      ;;    (#x2B (insert (format "SRA E\n"))) ;; 8
-      ;;    (#x2C (insert (format "SRA H\n"))) ;; 8
-      ;;    (#x2D (insert (format "SRA L\n"))) ;; 8
-      ;;    (#x2E (insert (format "SRA (HL) \n")));; 16
+                ;; SRA n - Shift n right into Carry. MSB doesn't change.
+                ;; Flags affected:
+                ;; Z - Set if result is zero.
+                ;; N - Reset.
+                ;; H - Reset.
+                ;; C - Contains old bit 0 data.
+                (#x2F (insert (format "SRA A\n"))) ;; 8
+                (#x28 (insert (format "SRA B\n"))) ;; 8
+                (#x29 (insert (format "SRA C\n"))) ;; 8
+                (#x2A (insert (format "SRA D\n"))) ;; 8
+                (#x2B (insert (format "SRA E\n"))) ;; 8
+                (#x2C (insert (format "SRA H\n"))) ;; 8
+                (#x2D (insert (format "SRA L\n"))) ;; 8
+                (#x2E (insert (format "SRA (HL) \n")));; 16
 
-      ;; ;; SRL n - Shift n right into Carry. MSB set to 0.
-      ;; ;; Flags affected:
-      ;; ;; Z - Set if result is zero.
-      ;; ;; N - Reset.
-      ;; ;; H - Reset.
-      ;; ;; C - Contains old bit 0 data.
-      ;;    (#x3F (insert (format "SRL A\n"))) ;; 8
-      ;;    (#x38 (insert (format "SRL B\n"))) ;; 8
-      ;;    (#x39 (insert (format "SRL C\n"))) ;; 8
-      ;;    (#x3A (insert (format "SRL D\n"))) ;; 8
-      ;;    (#x3B (insert (format "SRL E\n"))) ;; 8
-      ;;    (#x3C (insert (format "SRL H\n"))) ;; 8
-      ;;    (#x3D (insert (format "SRL L\n"))) ;; 8
-      ;;    (#x3E (insert (format "SRL (HL) \n")));; 16
+                ;; SRL n - Shift n right into Carry. MSB set to 0.
+                ;; Flags affected:
+                ;; Z - Set if result is zero.
+                ;; N - Reset.
+                ;; H - Reset.
+                ;; C - Contains old bit 0 data.
+                (#x3F (insert (format "SRL A\n"))) ;; 8
+                (#x38 (insert (format "SRL B\n"))) ;; 8
+                (#x39 (insert (format "SRL C\n"))) ;; 8
+                (#x3A (insert (format "SRL D\n"))) ;; 8
+                (#x3B (insert (format "SRL E\n"))) ;; 8
+                (#x3C (insert (format "SRL H\n"))) ;; 8
+                (#x3D (insert (format "SRL L\n"))) ;; 8
+                (#x3E (insert (format "SRL (HL) \n")));; 16
 
-      ;; ;; Bit Opcodes - Test bit b in register r.
-      ;; ;; Flags affected:
-      ;; ;; Z - Set if bit b of register r is 0.
-      ;; ;; N - Reset.
-      ;; ;; H - Set.
-      ;; ;; C - Not affected.
-      ;;    (#x47 (insert (format "BIT b,A\n"))) ;; 8
-      ;;    (#x40 (insert (format "BIT b,B\n"))) ;; 8
-      ;;    (#x41 (insert (format "BIT b,C\n"))) ;; 8
-      ;;    (#x42 (insert (format "BIT b,D\n"))) ;; 8
-      ;;    (#x43 (insert (format "BIT b,E\n"))) ;; 8
-      ;;    (#x44 (insert (format "BIT b,H\n"))) ;; 8
-      ;;    (#x45 (insert (format "BIT b,L\n"))) ;; 8
-      ;;    (#x46 (insert (format "BIT b,(HL) \n")));; 16
+                ;; Bit Opcodes - Test bit b in register r.
+                ;; Flags affected:
+                ;; Z - Set if bit b of register r is 0.
+                ;; N - Reset.
+                ;; H - Set.
+                ;; C - Not affected.
+                (#x47 (insert (format "BIT b,A\n"))) ;; 8
+                (#x40 (insert (format "BIT b,B\n"))) ;; 8
+                (#x41 (insert (format "BIT b,C\n"))) ;; 8
+                (#x42 (insert (format "BIT b,D\n"))) ;; 8
+                (#x43 (insert (format "BIT b,E\n"))) ;; 8
+                (#x44 (insert (format "BIT b,H\n"))) ;; 8
+                (#x45 (insert (format "BIT b,L\n"))) ;; 8
+                (#x46 (insert (format "BIT b,(HL) \n")));; 16
 
-      ;; ;; SET b,r - Set bit b in register r.
-      ;; ;; Flags affected:
-      ;; ;; None.
-      ;;    (#xC7 (insert (format "SET b,A\n"))) ;; 8
-      ;;    (#xC0 (insert (format "SET b,B\n"))) ;; 8
-      ;;    (#xC1 (insert (format "SET b,C\n"))) ;; 8
-      ;;    (#xC2 (insert (format "SET b,D\n"))) ;; 8
-      ;;    (#xC3 (insert (format "SET b,E\n"))) ;; 8
-      ;;    (#xC4 (insert (format "SET b,H\n"))) ;; 8
-      ;;    (#xC5 (insert (format "SET b,L\n"))) ;; 8
-      ;;    (#xC6 (insert (format "SET b,(HL) \n")));; 16
+                ;; SET b,r - Set bit b in register r.
+                ;; Flags affected:
+                ;; None.
+                (#xC7 (insert (format "SET b,A\n"))) ;; 8
+                (#xC0 (insert (format "SET b,B\n"))) ;; 8
+                (#xC1 (insert (format "SET b,C\n"))) ;; 8
+                (#xC2 (insert (format "SET b,D\n"))) ;; 8
+                (#xC3 (insert (format "SET b,E\n"))) ;; 8
+                (#xC4 (insert (format "SET b,H\n"))) ;; 8
+                (#xC5 (insert (format "SET b,L\n"))) ;; 8
+                (#xC6 (insert (format "SET b,(HL) \n")));; 16
 
-      ;; ;; RES b,r - Reset bit b in register r.
-      ;; ;; Flags affected:
-      ;; ;; None.
-      ;;    (#x87 (insert (format "RES b,A\n"))) ;; 8
-      ;;    (#x80 (insert (format "RES b,B\n"))) ;; 8
-      ;;    (#x81 (insert (format "RES b,C\n"))) ;; 8
-      ;;    (#x82 (insert (format "RES b,D\n"))) ;; 8
-      ;;    (#x83 (insert (format "RES b,E\n"))) ;; 8
-      ;;    (#x84 (insert (format "RES b,H\n"))) ;; 8
-      ;;    (#x85 (insert (format "RES b,L\n"))) ;; 8
-      ;;    (#x86 (insert (format "RES b,(HL) \n")));; 16
+                ;; RES b,r - Reset bit b in register r.
+                ;; Flags affected:
+                ;; None.
+                (#x87 (insert (format "RES b,A\n"))) ;; 8
+                (#x80 (insert (format "RES b,B\n"))) ;; 8
+                (#x81 (insert (format "RES b,C\n"))) ;; 8
+                (#x82 (insert (format "RES b,D\n"))) ;; 8
+                (#x83 (insert (format "RES b,E\n"))) ;; 8
+                (#x84 (insert (format "RES b,H\n"))) ;; 8
+                (#x85 (insert (format "RES b,L\n"))) ;; 8
+                (#x86 (insert (format "RES b,(HL) \n")));; 16
+                (otherwise (insert (format "Unimplemented BC opcode 0x%x\n" opcode)))
+                )))
+
 
       ;; JP nn - Jump to address nn.
-      (#xc3 (insert (format "JP $%04x\n" (eboy-get-short))) ;; 12
-              ;;(setq eboy-pc (logior (lsh (aref eboy-rom (+ eboy-pc 2)) 8) (aref eboy-rom (+ eboy-pc 1))))
+      (#xC3 (insert (format "JP $%04x\n" (eboy-get-short))) ;; 12
+            ;;(setq eboy-pc (logior (lsh (aref eboy-rom (+ eboy-pc 2)) 8) (aref eboy-rom (+ eboy-pc 1))))
             (eboy-inc-pc 2))
 
       ;; JP cc,nn - Jump to address n if following condition is true:
