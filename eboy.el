@@ -1,19 +1,8 @@
 ;;; eboy.el ---  Emulator  -*- lexical-binding: t; -*-
 
 ;;; Commentary:
-;; (defcont foo #b00001)
-;; (setf *flag* (logior *flag* #b00001))
-;;
-;; (defun foobar (keyword)
-;;   "docstring."
-;;   (ecase keyword
-;;     (:foo #b00001)
-;;     (:bar #b00010)
-;;     (:baz #b00100))
-;;   )
-;; bool-vector?
-(require 'cl)
-
+(eval-when-compile (require 'cl))
+;;(require 'cl-lib)
 ;;; Code:
 (defun eboy-read-bytes (path)
   "Read binary data from PATH.
@@ -45,8 +34,8 @@ Return the binary data as unibyte string."
 (defvar eboy-r-H 0 "Register H.")
 (defvar eboy-r-L 0 "Register L.")
 
-(defun eboy-clear-registers ()
-  "Clear all registers."
+(defun eboy-init-registers ()
+  "Initialize all registers."
   (setq eboy-r-A #x01) ;; 0x01:GB/SGB, 0xFF:GBP, 0x11:GBC
   (setq eboy-r-B 0)
   (setq eboy-r-C #x13)
@@ -56,7 +45,57 @@ Return the binary data as unibyte string."
   (setq eboy-r-L #x4d)
   )
 
-(defvar eboy-memory (make-vector #xFFFF 0) "The memory.")
+(defun eboy-init-memory ()
+  "Initialize the RAM to some startup values."
+  (eboy-write-byte-to-memory #xFF05 #x00) ; TIMA
+  (eboy-write-byte-to-memory #xFF06 #x00) ; TMA
+  (eboy-write-byte-to-memory #xFF07 #x00) ; TAC
+  (eboy-write-byte-to-memory #xFF10 #x80) ; NR10
+  (eboy-write-byte-to-memory #xFF11 #xBF) ; NR11
+  (eboy-write-byte-to-memory #xFF12 #xF3) ; NR12
+  (eboy-write-byte-to-memory #xFF14 #xBF) ; NR14
+  (eboy-write-byte-to-memory #xFF16 #x3F) ; NR21
+  (eboy-write-byte-to-memory #xFF17 #x00) ; NR22
+  (eboy-write-byte-to-memory #xFF19 #xBF) ; NR24
+  (eboy-write-byte-to-memory #xFF1A #x7F) ; NR30
+  (eboy-write-byte-to-memory #xFF1B #xFF) ; NR31
+  (eboy-write-byte-to-memory #xFF1C #x9F) ; NR32
+  (eboy-write-byte-to-memory #xFF1E #xBF) ; NR33
+  (eboy-write-byte-to-memory #xFF20 #xFF) ; NR41
+  (eboy-write-byte-to-memory #xFF21 #x00) ; NR42
+  (eboy-write-byte-to-memory #xFF22 #x00) ; NR43
+  (eboy-write-byte-to-memory #xFF23 #xBF) ; NR30
+  (eboy-write-byte-to-memory #xFF24 #x77) ; NR50
+  (eboy-write-byte-to-memory #xFF25 #xF3) ; NR51
+  (eboy-write-byte-to-memory #xFF26 #xF1) ; NR52, F1-GB, $F0-SGB
+  (eboy-write-byte-to-memory #xFF40 #x91) ; LCDC
+  (eboy-write-byte-to-memory #xFF42 #x00) ; SCY
+  (eboy-write-byte-to-memory #xFF43 #x00) ; SCX
+  (eboy-write-byte-to-memory #xFF45 #x00) ; LYC
+  (eboy-write-byte-to-memory #xFF47 #xFC) ; BGP
+  (eboy-write-byte-to-memory #xFF48 #xFF) ; OBP0
+  (eboy-write-byte-to-memory #xFF49 #xFF) ; OBP1
+  (eboy-write-byte-to-memory #xFF4A #x00) ; WY
+  (eboy-write-byte-to-memory #xFF4B #x00) ; WX
+  (eboy-write-byte-to-memory #xFFFF #x00) ; IE
+  )
+
+(defun eboy-debug-dump-memory (start-address end-address)
+  "Dump the memory from START-ADDRESS to END-ADDRESS."
+  (insert (format "\nMemory: 0x%04x - 0x%04x\n" start-address end-address))
+  (dotimes (i (1+ (- end-address start-address)))
+    (let* ((address (+ start-address i))
+           (data (eboy-read-byte-from-memory (+ start-address i))))
+      (if (= (mod address #x10) 0)
+          (insert (format "\n%04x: " address)))
+      (insert (format "%02x " data))
+      )
+    )
+  (insert "\n")
+  )
+
+(defvar eboy-ram (make-vector (* 8 1024) 0) "The 8 kB interal RAM.")
+(defvar eboy-vram (make-vector (* 8 1024) 0) "The 8 kB interal Video RAM.")
 
 ;;; Memory:
 ;; Iterrupt Enable Register
@@ -90,36 +129,92 @@ Return the binary data as unibyte string."
   (cond
    ;; Iterrupt Enable Register??
 
-   ((and (>= address #xFF80) (< address #xFFFF))
-    (message "Internal RAM"))
+   ((and (>= address #xFF80) (<= address #xFFFF))
+    ;;(message "Internal RAM")
+    (aref eboy-ram (- address #xE000))
+    )
    ((and (>= address #xFF4C) (< address #xFF80))
-    (message "Empty but unusable for I/O"))
+    ;;(message "Empty but unusable for I/O")
+    (aref eboy-ram (- address #xE000))
+    )
    ((and (>= address #xFF00) (< address #xFF4C))
-    (message "I/O ports"))
+    ;;(message "I/O ports")
+    (aref eboy-ram (- address #xE000))
+    )
    ((and (>= address #xFEA0) (< address #xFF00))
-    (message "Empty but unusable for I/O"))
+    ;;(message "Empty but unusable for I/O")
+    (aref eboy-ram (- address #xE000))
+    )
    ((and (>= address #xFE00) (< address #xFEA0))
-    (message "Sprite Attrib Memory (OAM)"))
+    ;;(message "Sprite Attrib Memory (OAM)")
+    (aref eboy-ram (- address #xE000))
+    )
    ((and (>= address #xE000) (< address #xFE00))
-    (message "Echo of 8kB Internal RAM"))
+    ;;(message "Echo of 8kB Internal RAM")
+    (aref eboy-ram (- address #xE000))
+    )
    ((and (>= address #xC000) (< address #xE000))
-    (message "8kB Internal RAM"))
+    ;;(message "8kB Internal RAM")
+    (aref eboy-ram (- address #xC000))
+    )
    ((and (>= address #xA000) (< address #xC000))
-    (message "8kB switchable RAM bank"))
+    ;;(message "8kB switchable RAM bank")
+    )
    ((and (>= address #x8000) (< address #xA000))
-    (message "8kB Video RAM"))
+    ;;(message "8kB Video RAM")
+    (aref eboy-vram (- address #x8000))
+    )
 
    ;; 32kB Cartidge
    ((and (>= address #x4000) (< address #x8000))
-    (message "16kB switchable ROM bank")
+    ;;(message "16kB switchable ROM bank")
     (aref eboy-rom address))
    ((and (>= address #x0000) (< address #x4000))
-    (message "16kB ROM bank #0")
+    ;;(message "16kB ROM bank #0")
     (aref eboy-rom address))
    ))
 
+(defun eboy-write-byte-to-memory (address data)
+  "Write DATA byte to memory at ADDRESS."
+  (cond
+   ;; Iterrupt Enable Register??
 
+   ((and (>= address #xFF80) (<= address #xFFFF))
+    ;; (message "Write Internal RAM")
+    (aset eboy-ram (- address #xE000) data))
+   ((and (>= address #xFF4C) (< address #xFF80))
+    ;; (message "Write Empty but unusable for I/O")
+    (aset eboy-ram (- address #xE000) data))
+   ((and (>= address #xFF00) (< address #xFF4C))
+    ;; (message "Write I/O ports")
+    (aset eboy-ram (- address #xE000) data))
+   ((and (>= address #xFEA0) (< address #xFF00))
+    ;; (message "Write Empty but unusable for I/O")
+    (aset eboy-ram (- address #xE000) data))
+   ((and (>= address #xFE00) (< address #xFEA0))
+    ;; (message "Write Sprite Attrib Memory (OAM)")
+    (aset eboy-ram (- address #xE000) data))
+   ((and (>= address #xE000) (< address #xFE00))
+    ;; (message "Write Echo of 8kB Internal RAM")
+    (aset eboy-ram (- address #xE000) data))
+   ((and (>= address #xC000) (< address #xE000))
+    ;; (message "Write 8kB Internal RAM")
+    (aset eboy-ram (- address #xC000) data))
+   ((and (>= address #xA000) (< address #xC000))
+    ;; (message "Write 8kB switchable RAM bank")
+    )
+   ((and (>= address #x8000) (< address #xA000))
+    ;; (message "Write 8kB Video RAM")
+    (aset eboy-vram (- address #x8000) data))
 
+   ;; 32kB Cartidge
+   ((and (>= address #x4000) (< address #x8000))
+    (assert nil t "Non writable: 16kB switchable ROM bank"))
+   ((and (>= address #x0000) (< address #x4000))
+    (assert nil t "Non writable: 16kB ROM bank #0"))
+   ))
+
+;;(eboy-write-byte-to-memory #x4100 23)
 ;;(message "message %x" (eboy-read-byte-from-memory #x101))
 
 (defun eboy-debug-print-flags (flags)
@@ -127,7 +222,7 @@ Return the binary data as unibyte string."
   (insert (format "Flags; Z:%s N:%s H:%s C:%s\n" (eboy-get-flag flags :Z) (eboy-get-flag  flags :N) (eboy-get-flag flags :H) (eboy-get-flag flags :C)))
   )
 
-(defun eboy-debug-print-registers (flags)
+(defun eboy-debug-print-cpu-state (flags)
   "Print the registers and FLAGS."
   (insert (format "Reg;  A:%d B:%d C:%d D:%d E:%d H:%d L:%d  Flags; Z:%s N:%s H:%s C:%s\n" eboy-r-A  eboy-r-B  eboy-r-C  eboy-r-D  eboy-r-E  eboy-r-H  eboy-r-L (eboy-get-flag flags :Z) (eboy-get-flag  flags :N) (eboy-get-flag flags :H) (eboy-get-flag flags :C)))
   )
@@ -329,9 +424,9 @@ Return the binary data as unibyte string."
       ;; Put A into memory address HL. Decrement HL.
       (#x32 (insert (format "0x%02x: LD (HLD),A\n" opcode))
             ;; TODO: other direction
-            ;;(eboy-debug-print-registers flags)
+            ;;(eboy-debug-print-cpu-state flags)
             ;;(setq eboy-r-A (eboy-read-byte-from-memory (eboy-get-r-HL)))
-            ;;(eboy-debug-print-registers flags)
+            ;;(eboy-debug-print-cpu-state flags)
             ) ;; 8
       ;; Put value at address HL into A. Increment HL.
       (#x2A (insert (format "0x%02x: LD A,(HLI)\n" opcode)))
@@ -482,14 +577,14 @@ Return the binary data as unibyte string."
       ;; H - Reset.
       ;; C - Reset.
       (#xAF (insert (format "0x%02x: XOR A \n" opcode))
-            ;;(eboy-debug-print-registers flags)
+            ;;(eboy-debug-print-cpu-state flags)
             (setq eboy-r-A (logxor eboy-r-A eboy-r-A))
             (if (zerop eboy-r-A)
                 (eboy-set-flag flags :Z t))
             (eboy-set-flag flags :N nil)
             (eboy-set-flag flags :H nil)
             (eboy-set-flag flags :C nil)
-            ;;(eboy-debug-print-registers flags)
+            ;;(eboy-debug-print-cpu-state flags)
             ) ;; 4
       (#xA8 (insert (format "0x%02x: XOR B \n" opcode))) ;; 4
       (#xA9 (insert (format "0x%02x: XOR C \n" opcode))) ;; 4
@@ -963,12 +1058,14 @@ Return the binary data as unibyte string."
   (setq eboy-sp eboy-sp-initial-value)
   (setq eboy-debug-nr-instructions 0)
   ;;(eboy-reset-CPU-flags)
-  (eboy-clear-registers)
+  (eboy-init-registers)
+  (eboy-init-memory)
   (switch-to-buffer "*eboy*")
   (erase-buffer)
   (insert (format "Load rom: %s\n" eboy-rom-filename))
   (insert (format "Rom size: %d bytes\n" eboy-rom-size))
   (insert (format "Rom title: %s\n" (eboy-rom-title)))
+  (eboy-debug-dump-memory #xFF00 #xFFFF)
   ;; loop
   (while (and (< eboy-pc eboy-rom-size) (< eboy-debug-nr-instructions 500))
     (eboy-process-opcode (aref eboy-rom eboy-pc))
