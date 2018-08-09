@@ -25,30 +25,111 @@ Return the binary data as unibyte string."
     (buffer-substring-no-properties (point-min) (point-max))))
 
 (defconst eboy-pc-start-address #x100 "The start address of the program counter.")
-
+(defconst eboy-sp-initial-value #xFFFE "Initial value of the stack pointer.")
 (defvar eboy-rom-filename nil "The file name of the loaded rom.")
 (defvar eboy-rom nil "The binary vector of the rom.")
 (defvar eboy-rom-size nil "The size of the rom in bytes.")
 (defvar eboy-pc nil "The program counter.")
+(defvar eboy-sp nil "The stack pointer.")
+
 ;;(defvar eboy-flags (make-bool-vector 4 t) "The flags Z(Zero) S(Negative) H(Halve Carry) and C(Carry).")
 (defvar eboy-debug-nr-instructions nil "Number of instructions executed.")
 
 
-;; (let ((flags (make-bool-vector 4 t)))
-;;   ;;(aref flags 3)
-;;   (eboy-set-flag flags :N nil)
-;;   (eboy-set-flag flags :C nil)
-;;   (eboy-set-flags flags '((:Z nil) (:H nil)))
-;;   (eboy-debug-print-flags flags)
-;;   )
-;;(cadar '((:Z nil) (:H t)))
-;;(cdr (car '((:Z nil) (:H t))))
-;;(caar '((:Z nil) (:H t)))
-;;(defvar eboy-reg-A 0 "Register A.")
+(defvar eboy-r-A 0 "Register A.")
+(defvar eboy-r-B 0 "Register B.")
+(defvar eboy-r-C 0 "Register C.")
+(defvar eboy-r-D 0 "Register D.")
+(defvar eboy-r-E 0 "Register E.")
+;;(defvar eboy-r-F 0 "Register F.") flags
+(defvar eboy-r-H 0 "Register H.")
+(defvar eboy-r-L 0 "Register L.")
+
+(defun eboy-clear-registers ()
+  "Clear all registers."
+  (setq eboy-r-A #x01) ;; 0x01:GB/SGB, 0xFF:GBP, 0x11:GBC
+  (setq eboy-r-B 0)
+  (setq eboy-r-C #x13)
+  (setq eboy-r-D 0)
+  (setq eboy-r-E #xD8)
+  (setq eboy-r-H #x01)
+  (setq eboy-r-L #x4d)
+  )
+
+(defvar eboy-memory (make-vector #xFFFF 0) "The memory.")
+
+;;; Memory:
+;; Iterrupt Enable Register
+;; --------------------------- FFFF
+;; Internal RAM
+;; --------------------------- FF80
+;; Empty but unusable for I/O
+;; --------------------------- FF4C
+;; I/O ports
+;; --------------------------- FF00
+;; Empty but unusable for I/O
+;; --------------------------- FEA0
+;; Sprite Attrib Memory (OAM)
+;; --------------------------- FE00
+;; Echo of 8kB Internal RAM
+;; --------------------------- E000
+;; 8kB Internal RAM
+;; --------------------------- C000
+;; 8kB switchable RAM bank
+;; --------------------------- A000
+;; 8kB Video RAM
+;; --------------------------- 8000 --
+;; 16kB switchable ROM bank         |
+;; --------------------------- 4000  |= 32kB Cartrigbe
+;; 16kB ROM bank #0                 |
+;; --------------------------- 0000 --
+;; * NOTE: b = bit, B = byte
+
+(defun eboy-read-byte-from-memory (address)
+  "Read byte from ADDRESS."
+  (cond
+   ;; Iterrupt Enable Register??
+
+   ((and (>= address #xFF80) (< address #xFFFF))
+    (message "Internal RAM"))
+   ((and (>= address #xFF4C) (< address #xFF80))
+    (message "Empty but unusable for I/O"))
+   ((and (>= address #xFF00) (< address #xFF4C))
+    (message "I/O ports"))
+   ((and (>= address #xFEA0) (< address #xFF00))
+    (message "Empty but unusable for I/O"))
+   ((and (>= address #xFE00) (< address #xFEA0))
+    (message "Sprite Attrib Memory (OAM)"))
+   ((and (>= address #xE000) (< address #xFE00))
+    (message "Echo of 8kB Internal RAM"))
+   ((and (>= address #xC000) (< address #xE000))
+    (message "8kB Internal RAM"))
+   ((and (>= address #xA000) (< address #xC000))
+    (message "8kB switchable RAM bank"))
+   ((and (>= address #x8000) (< address #xA000))
+    (message "8kB Video RAM"))
+
+   ;; 32kB Cartidge
+   ((and (>= address #x4000) (< address #x8000))
+    (message "16kB switchable ROM bank")
+    (aref eboy-rom address))
+   ((and (>= address #x0000) (< address #x4000))
+    (message "16kB ROM bank #0")
+    (aref eboy-rom address))
+   ))
+
+
+
+;;(message "message %x" (eboy-read-byte-from-memory #x101))
 
 (defun eboy-debug-print-flags (flags)
   "Print the FLAGS."
   (insert (format "Flags; Z:%s N:%s H:%s C:%s\n" (eboy-get-flag flags :Z) (eboy-get-flag  flags :N) (eboy-get-flag flags :H) (eboy-get-flag flags :C)))
+  )
+
+(defun eboy-debug-print-registers (flags)
+  "Print the registers and FLAGS."
+  (insert (format "Reg;  A:%d B:%d C:%d D:%d E:%d H:%d L:%d  Flags; Z:%s N:%s H:%s C:%s\n" eboy-r-A  eboy-r-B  eboy-r-C  eboy-r-D  eboy-r-E  eboy-r-H  eboy-r-L (eboy-get-flag flags :Z) (eboy-get-flag  flags :N) (eboy-get-flag flags :H) (eboy-get-flag flags :C)))
   )
 
 (defun eboy-set-flags (flags new-flags)
@@ -79,14 +160,6 @@ Return the binary data as unibyte string."
     )
   )
 
-;; (defun eboy-reset-CPU-flags ()
-;;   "Reset the CPU flags."
-;;   (setq eboy-flags '((Z . nil)
-;;                      (N . nil)
-;;                      (H . nil)
-;;                      (C . nil)))
-;;   )
-
 (defun eboy-rom-title ()
   "Retrieve the title of the game from the loaded rom."
   (let ((title ""))
@@ -96,6 +169,7 @@ Return the binary data as unibyte string."
             (setq title (concat title (format "%c" c))))
         ))
     title))
+
 
 (defun eboy-get-short ()
   "Skip opcode and get next two bytes."
@@ -112,35 +186,38 @@ Return the binary data as unibyte string."
   (setq eboy-pc (+ eboy-pc nr-bytes))
   )
 
+(defun eboy-set-r-BC (value)
+  "Put VALUE into registers BC."
+  (setq eboy-r-B (logand (lsh value -8) #xff))
+  (setq eboy-r-C (logand value #xff))  )
+(defun eboy-set-r-DE (value)
+  "Put VALUE into registers DE."
+  (setq eboy-r-D (logand (lsh value -8) #xff))
+  (setq eboy-r-E (logand value #xff))  )
+(defun eboy-set-r-HL (value)
+  "Put VALUE into registers BC."
+  (setq eboy-r-H (logand (lsh value -8) #xff))
+  (setq eboy-r-L (logand value #xff)) )
+
+(defun eboy-get-r-HL ()
+  "Get short by combining byte register H and L."
+  (logior (lsh eboy-r-H 8) eboy-r-L) )
+
 (defun eboy-debug-unimplemented-opcode (opcode)
   "Print OPCODE is unimplemented."
   (insert (format "Unimplemented opcode 0x%02x" opcode))
   )
 
-(defvar eboy-r-A 0 "Register A.")
-(defvar eboy-r-B 0 "Register B.")
-(defvar eboy-r-C 0 "Register C.")
-(defvar eboy-r-D 0 "Register D.")
-(defvar eboy-r-E 0 "Register E.")
-;;(defvar eboy-r-F 0 "Register F.") flags
-(defvar eboy-r-H 0 "Register H.")
-(defvar eboy-r-L 0 "Register L.")
-
-(defun eboy-clear-registers ()
-  "Clear all registers."
-  (setq eboy-r-A 0)
-  (setq eboy-r-B 0)
-  (setq eboy-r-C #xe)
-  (setq eboy-r-D 0)
-  (setq eboy-r-E 0)
-  (setq eboy-r-H 0)
-  (setq eboy-r-L 0)
-  )
 
 (defun eboy-process-opcode (opcode)
   "Process OPCODE."
   (insert (format "pc: 0x%x  " eboy-pc))
   (let ((flags (make-bool-vector 4 nil)))
+    ;; init flags 0xB0
+    (eboy-set-flag flags :Z t)
+    (eboy-set-flag flags :N nil)
+    (eboy-set-flag flags :H t)
+    (eboy-set-flag flags :C t)
     (cl-case opcode
       (#x00 (insert "NOP\n"))
 
@@ -148,9 +225,10 @@ Return the binary data as unibyte string."
       (#x06
        ;;(eboy-debug-unimplemented-opcode 6)
        (insert (format "0x%02x: LD B, #0x%02x\n" opcode (eboy-get-byte)))
-       (insert )
-       (eboy-inc-pc 1))
+            (setq eboy-r-B (eboy-get-byte))
+            (eboy-inc-pc 1))
       (#x0E (insert (format "0x%02x: LD C, #0x%02x\n" opcode (eboy-get-byte)))
+            (setq eboy-r-C (eboy-get-byte))
             (eboy-inc-pc 1))
       (#x16 (insert (format "0x%02x: LD D, #0x%02x\n" opcode (eboy-get-byte)))
             (eboy-inc-pc 1))
@@ -235,7 +313,9 @@ Return the binary data as unibyte string."
       (#x5F (insert (format "0x%02x: LD E,A" opcode)))                      ;; 4
       (#x67 (insert (format "0x%02x: LD H,A" opcode)))                      ;; 4
       (#x6F (insert (format "0x%02x: LD L,A" opcode)))                      ;; 4
-      (#x02 (insert (format "0x%02x: LD (BC),A\n" opcode)))                   ;; 8
+      (#x02 (insert (format "0x%02x: LD (BC),A\n" opcode))
+            ;;(eboy-set-r-BC eboy-r-A) maybe (BC) means memory address?
+            )                   ;; 8
       (#x12 (insert (format "0x%02x: LD (DE),A\n" opcode)))                   ;; 8
       (#x77 (insert (format "0x%02x: LD (HL),A\n" opcode)))                   ;; 8
       (#xEA (insert (format "0x%02x: LD (nn),A\n" opcode)))                   ;; 16
@@ -247,7 +327,12 @@ Return the binary data as unibyte string."
       ;; Put value at address HL into A. Decrement HL.
       (#x3A (insert (format "0x%02x: LD A,(HLD)\n" opcode)))
       ;; Put A into memory address HL. Decrement HL.
-      (#x32 (insert (format "0x%02x: LD (HLD),A\n" opcode)))
+      (#x32 (insert (format "0x%02x: LD (HLD),A\n" opcode))
+            ;; TODO: other direction
+            ;;(eboy-debug-print-registers flags)
+            ;;(setq eboy-r-A (eboy-read-byte-from-memory (eboy-get-r-HL)))
+            ;;(eboy-debug-print-registers flags)
+            ) ;; 8
       ;; Put value at address HL into A. Increment HL.
       (#x2A (insert (format "0x%02x: LD A,(HLI)\n" opcode)))
       ;; Put A into memory address HL. Increment HL.
@@ -258,10 +343,13 @@ Return the binary data as unibyte string."
       (#xF0 (insert (format "0x%02x: LD A,($FF00+n)\n" opcode)))
 
       ;; 16 bit loads, nn = 16 bit immediate value
-      (#x01 (insert (format "0x%02x: LD BC, $%04x\n" opcode (eboy-get-short)))(eboy-inc-pc 2))
-      (#x11 (insert (format "0x%02x: LD DE,nn\n" opcode)))
-      (#x21 (insert (format "0x%02x: LD HL,nn\n" opcode)))
-      (#x31 (insert (format "0x%02x: LD SP,nn\n" opcode)))
+      (#x01 (insert (format "0x%02x: LD BC, $%04x\n" opcode (eboy-get-short)))(eboy-inc-pc 2)) ;; 12
+      (#x11 (insert (format "0x%02x: LD DE, $%04x\n" opcode (eboy-get-short)))) ;; 12
+      (#x21 (insert (format "0x%02x: LD HL, $%04x\n" opcode (eboy-get-short)))
+            (eboy-set-r-HL (eboy-get-short))
+            (eboy-inc-pc 2)
+            ) ;; 12
+      (#x31 (insert (format "0x%02x: LD SP, $%04x\n" opcode (eboy-get-short)))) ;; 12
 
       (#xF9 (insert (format "0x%02x: LD SP,HL\n" opcode)))
 
@@ -393,7 +481,16 @@ Return the binary data as unibyte string."
       ;; N - Reset.
       ;; H - Reset.
       ;; C - Reset.
-      (#xAF (insert (format "0x%02x: XOR A \n" opcode))) ;; 4
+      (#xAF (insert (format "0x%02x: XOR A \n" opcode))
+            ;;(eboy-debug-print-registers flags)
+            (setq eboy-r-A (logxor eboy-r-A eboy-r-A))
+            (if (zerop eboy-r-A)
+                (eboy-set-flag flags :Z t))
+            (eboy-set-flag flags :N nil)
+            (eboy-set-flag flags :H nil)
+            (eboy-set-flag flags :C nil)
+            ;;(eboy-debug-print-registers flags)
+            ) ;; 4
       (#xA8 (insert (format "0x%02x: XOR B \n" opcode))) ;; 4
       (#xA9 (insert (format "0x%02x: XOR C \n" opcode))) ;; 4
       (#xAA (insert (format "0x%02x: XOR D \n" opcode))) ;; 4
@@ -435,7 +532,7 @@ Return the binary data as unibyte string."
                 (progn (eboy-set-flag flags :Z t)
                        (setq eboy-r-C 0)))
             (eboy-set-flag flags :N nil)
-            (if (> eboy-r-C #xf)
+            (if (< (logand eboy-r-C #xf) (logand (1- eboy-r-C) #xf))
                 (eboy-set-flag flags :H t))
             ;;(message "Register C %s" eboy-r-C)
             ;;(eboy-debug-print-flags flags)
@@ -756,7 +853,7 @@ Return the binary data as unibyte string."
 
       ;; JP nn - Jump to address nn.
       (#xC3 (insert (format "0x%02x: JP $%04x\n" opcode (eboy-get-short))) ;; 12
-            (setq eboy-pc (eboy-get-short))
+            (setq eboy-pc (1- (eboy-get-short))) ;; Compensate for the pc +1 that is done with each instruction.
             ;;(eboy-inc-pc 2)
             )
 
@@ -863,8 +960,9 @@ Return the binary data as unibyte string."
   (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
   (setq eboy-rom-size (length eboy-rom))
   (setq eboy-pc eboy-pc-start-address)
+  (setq eboy-sp eboy-sp-initial-value)
   (setq eboy-debug-nr-instructions 0)
-  (eboy-reset-CPU-flags)
+  ;;(eboy-reset-CPU-flags)
   (eboy-clear-registers)
   (switch-to-buffer "*eboy*")
   (erase-buffer)
