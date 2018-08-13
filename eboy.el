@@ -267,13 +267,13 @@ Return the binary data as unibyte string."
   (insert (format "\t\t\t\tReg;  A:%3d B:%003d C:%3d D:%3d E:%3d H:%3d L:%3d  Flags; Z:%3s N:%3s H:%3s C:%3s\n" eboy-r-A  eboy-r-B  eboy-r-C  eboy-r-D  eboy-r-E  eboy-r-H  eboy-r-L (eboy-get-flag flags :Z) (eboy-get-flag  flags :N) (eboy-get-flag flags :H) (eboy-get-flag flags :C)))
   )
 
-(defun eboy-set-flags (flags new-flags)
-  "Set FLAGS to NEW-FLAGS."
-  (eboy-set-flag flags (caar new-flags) (cadar new-flags))
-  ;;(insert (format "%s %s" (caar new-flags) (cadar new-flags)) )
-  (unless (null (cdr new-flags))
-    (eboy-set-flags flags (cdr new-flags)))
-  )
+;; (defun eboy-set-flags (flags new-flags)
+;;   "Set FLAGS to NEW-FLAGS."
+;;   (eboy-set-flag flags (caar new-flags) (cadar new-flags))
+;;   ;;(insert (format "%s %s" (caar new-flags) (cadar new-flags)) )
+;;   (unless (null (cdr new-flags))
+;;     (eboy-set-flags flags (cdr new-flags)))
+;;   )
 
 (defun eboy-set-flag (flags flag state)
   "Set FLAG in FLAGS to STATE."
@@ -284,6 +284,14 @@ Return the binary data as unibyte string."
     (:C (aset flags 3 state))
     )
   )
+
+;; (let ((flags  (make-vector 4 t)))
+;;   (eboy-debug-print-flags flags)
+;;   (eboy-set-flag flags :C (logand #x00 #x01))
+;;   (eboy-debug-print-flags flags))
+;Flags; Z:t N:t H:t C:t
+;Flags; Z:t N:t H:t C:0
+
 
 (defun eboy-get-flag (flags flag)
   "Get FLAG from FLAGS."
@@ -472,9 +480,13 @@ Return the binary data as unibyte string."
     ;; Put A into memory address HL. Increment HL.
     (#x22 (eboy-log (format " LD (HLI),A")) (assert nil t "unimplemented opcode"))
     ;; Put A into memory address $FF00+n
-    (#xE0 (eboy-log (format " LD ($FF00+0x%02x),A" (eboy-get-byte))) (eboy-write-byte-to-memory (+ #xFF00 (eboy-get-byte)) eboy-r-A))
+    (#xE0 (eboy-log (format " LD ($FF00+0x%02x),A (0x%02x)" (eboy-get-byte) eboy-r-A))
+          (eboy-write-byte-to-memory (+ #xFF00 (eboy-get-byte)) eboy-r-A)
+          (eboy-inc-pc 1)) ;; 12
     ;; Put memory address $FF00+n into A.
-    (#xF0 (eboy-log (format " LD A,($FF00+n)")) (assert nil t "unimplemented opcode"))
+    (#xF0 (eboy-log (format " LD A,($FF00+0x%02x) (0x%02x)" (eboy-get-byte) (eboy-read-byte-from-memory (+ #xFF00 (eboy-get-byte)))))
+          (setq eboy-r-A (eboy-read-byte-from-memory (+ #xFF00 (eboy-get-byte))))
+          (eboy-inc-pc 1)) ;; 12
 
     ;; 16 bit loads, nn = 16 bit immediate value
     (#x01 (eboy-log (format " LD BC, $%04x" (eboy-get-short)))(eboy-inc-pc 2) (assert nil t "unimplemented opcode")) ;; 12
@@ -646,7 +658,14 @@ Return the binary data as unibyte string."
     (#xBC (eboy-log (format " CP H ")) (assert nil t "unimplemented opcode")) ;; 4
     (#xBD (eboy-log (format " CP L ")) (assert nil t "unimplemented opcode")) ;; 4
     (#xBE (eboy-log (format " CP (HL) ")) (assert nil t "unimplemented opcode")) ;; 8
-    (#xFE (eboy-log (format " CP # ")) (assert nil t "unimplemented opcode")) ;; 8
+    (#xFE (eboy-log (format " CP # (0x%02x)" (eboy-get-byte)))
+          (let ((n (eboy-get-byte)))
+            (eboy-set-flag flags :Z (= eboy-r-A n))
+            (eboy-set-flag flags :N t)
+            (eboy-set-flag flags :H (> (logand (- eboy-r-A n) #x0F) (logand eboy-r-A #x0F)))
+            (eboy-set-flag flags :C (< eboy-r-A n))
+            (eboy-inc-pc 1)
+            )) ;; 8
 
     ;; INC n - Increment register n.
     ;; Flags affected:
@@ -808,10 +827,11 @@ Return the binary data as unibyte string."
     ;; H - Reset.
     ;; C - Contains old bit 0 data.
     (#x0F (eboy-log (format " RRCA -/- "))
-          (eboy-set-flag flags :C (logand eboy-r-A #x01))
-          (setq eboy-r-A (logior (lsh eboy-r-A 1) (lsh eboy-r-A -7)))
-          (eboy-set-flags flags :Z (= eboy-r-A 0))
-          (assert nil t "unimplemented opcode")) ;; 4
+          (insert (format " %s " (logand eboy-r-A #x01)) )
+          (eboy-set-flag flags :C (= (logand eboy-r-A #x01) 1))
+          (setq eboy-r-A (logand (logior (lsh eboy-r-A 1) (lsh eboy-r-A -7)) #xff))
+          (eboy-set-flag flags :Z (= eboy-r-A 0))
+          ) ;; 4
 
     ;; RRA - Rotate A right through Carry flag.
     ;; Flags affected:
