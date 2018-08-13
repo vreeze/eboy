@@ -46,12 +46,12 @@ Return the binary data as unibyte string."
               (setq ,byte (+ ,byte 256))))
   )
 
-(defmacro eboy-subtract-byte (byte value)
-  "Simulate byte behavior: subtract VALUE from BYTE."
-  `(progn (setq ,byte (- ,byte ,value))
-          (if (< ,byte 0)
-              (setq ,byte (+ ,byte 256))))
-  )
+;; (defmacro eboy-subtract-byte (byte value)
+;;   "Simulate byte behavior: subtract VALUE from BYTE."
+;;   `(progn (setq ,byte (- ,byte ,value))
+;;           (if (< ,byte 0)
+;;               (setq ,byte (+ ,byte 256))))
+;;   )
 
 (defun eboy-byte-to-signed (byte)
   "Convert BYTE to signed number."
@@ -249,9 +249,12 @@ Return the binary data as unibyte string."
 
    ;; 32kB Cartidge
    ((and (>= address #x4000) (< address #x8000))
-    (assert nil t "Non writable: 16kB switchable ROM bank"))
+    ;;(assert nil t "Non writable: 16kB switchable ROM bank")
+    )
    ((and (>= address #x0000) (< address #x4000))
-    (assert nil t "Non writable: 16kB ROM bank #0"))
+    ;; Tetris writes to 0x2000... why?
+    ;;(assert nil t "Non writable: 16kB ROM bank #0")
+    )
    ))
 
 ;;(eboy-write-byte-to-memory #x4100 23)
@@ -438,7 +441,9 @@ Return the binary data as unibyte string."
     (#x73 (eboy-log (format " LD (HL),E")) (assert nil t "unimplemented opcode"))
     (#x74 (eboy-log (format " LD (HL),H")) (assert nil t "unimplemented opcode"))
     (#x75 (eboy-log (format " LD (HL),L")) (assert nil t "unimplemented opcode"))
-    (#x36 (eboy-log (format " LD (HL),n")) (assert nil t "unimplemented opcode"))
+    (#x36 (eboy-log (format " LD (HL),0x%02x" (eboy-get-byte)))
+          (eboy-write-byte-to-memory (eboy-get-r-HL) (eboy-get-byte))
+          (eboy-inc-pc 1)) ;; 12
 
     ;; LD A,n
     (#x0A (eboy-log (format " LD A,(BC)")) (assert nil t "unimplemented opcode"))
@@ -446,7 +451,7 @@ Return the binary data as unibyte string."
     (#xFA (eboy-log (format " LD A,(nn)")) (assert nil t "unimplemented opcode"))
     (#x3E (eboy-log (format " LD A,#0x%02x" (eboy-get-byte)))
           (setq eboy-r-A (eboy-get-byte))
-          (eboy-inc-pc 1))
+          (eboy-inc-pc 1)) ;; 8
 
     ;; LD n,A - Put value A into n.
     ;; n = A,B,C,D,E,H,L,(BC),(DE),(HL),(nn)
@@ -462,7 +467,9 @@ Return the binary data as unibyte string."
           )                   ;; 8
     (#x12 (eboy-log (format " LD (DE),A")) (assert nil t "unimplemented opcode"))                   ;; 8
     (#x77 (eboy-log (format " LD (HL),A")) (assert nil t "unimplemented opcode"))                   ;; 8
-    (#xEA (eboy-log (format " LD (nn),A")) (assert nil t "unimplemented opcode"))                   ;; 16
+    (#xEA (eboy-log (format " LD (0x%0004x),A" (eboy-get-short)))
+          (eboy-write-byte-to-memory (eboy-get-short) eboy-r-A)
+          (eboy-inc-pc 2))                   ;; 16
 
     ;; Put value at address $FF00 + register C into A.
     (#xF2 (eboy-log (format " LD A,($FF00+C)")) (assert nil t "unimplemented opcode") )
@@ -476,7 +483,10 @@ Return the binary data as unibyte string."
           (eboy-set-r-HL (1- (eboy-get-r-HL)))
           ) ;; 8
     ;; Put value at address HL into A. Increment HL.
-    (#x2A (eboy-log (format " LD A,(HLI)")) (assert nil t "unimplemented opcode"))
+    (#x2A (eboy-log (format " LD A,(HLI)"))
+          (setq eboy-r-A (eboy-read-byte-from-memory (eboy-get-r-HL)))
+          (eboy-set-r-HL (1+ (eboy-get-r-HL)))) ;; 8
+
     ;; Put A into memory address HL. Increment HL.
     (#x22 (eboy-log (format " LD (HLI),A")) (assert nil t "unimplemented opcode"))
     ;; Put A into memory address $FF00+n
@@ -493,9 +503,10 @@ Return the binary data as unibyte string."
     (#x11 (eboy-log (format " LD DE, $%04x" (eboy-get-short))) (assert nil t "unimplemented opcode")) ;; 12
     (#x21 (eboy-log (format " LD HL, $%04x" (eboy-get-short)))
           (eboy-set-r-HL (eboy-get-short))
-          (eboy-inc-pc 2)
-          ) ;; 12
-    (#x31 (eboy-log (format " LD SP, $%04x" (eboy-get-short))) (assert nil t "unimplemented opcode")) ;; 12
+          (eboy-inc-pc 2)) ;; 12
+    (#x31 (eboy-log (format " LD SP, $%04x" (eboy-get-short)))
+          (setq eboy-sp (eboy-get-short))
+          (eboy-inc-pc 2)) ;; 12
 
     (#xF9 (eboy-log (format " LD SP,HL")) (assert nil t "unimplemented opcode"))
 
@@ -1110,7 +1121,11 @@ Return the binary data as unibyte string."
     (#xFD (eboy-log (format "Non existant opcode: 0x%02x" opcode)) (assert nil t))
     (otherwise (eboy-log (format "Unimplemented opcode 0x%x" opcode)) (assert nil t))
     )
+
   (eboy-inc-pc 1)
+  (if (= eboy-pc #x235)
+      (progn (message "indicate the V-Blank moment")
+             (eboy-write-byte-to-memory #xFF44 #x94)))
   )
 
 (defun eboy-load-rom ()
@@ -1140,7 +1155,7 @@ Return the binary data as unibyte string."
     (eboy-set-flag flags :H t)
     (eboy-set-flag flags :C t)
 
-    (while (and (< eboy-pc eboy-rom-size) (< eboy-debug-nr-instructions 50000))
+    (while (and (< eboy-pc eboy-rom-size) (< eboy-debug-nr-instructions 100000))
       (if eboy-debug-1 (insert (format "%2d: " eboy-debug-nr-instructions)))
       (eboy-process-opcode (aref eboy-rom eboy-pc) flags)
       (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
