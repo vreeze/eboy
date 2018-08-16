@@ -28,22 +28,31 @@ Return the binary data as unibyte string."
 (defvar eboy-debug-2 t "Enable debugging info.")
 
 
-(defvar eboy-r-A 0 "Register A.")
-(defvar eboy-r-B 0 "Register B.")
-(defvar eboy-r-C 0 "Register C.")
-(defvar eboy-r-D 0 "Register D.")
-(defvar eboy-r-E 0 "Register E.")
-;;(defvar eboy-r-F 0 "Register F.") flags
-(defvar eboy-r-H 0 "Register H.")
-(defvar eboy-r-L 0 "Register L.")
+(defvar eboy-rA 0 "Register A.")
+(defvar eboy-rB 0 "Register B.")
+(defvar eboy-rC 0 "Register C.")
+(defvar eboy-rD 0 "Register D.")
+(defvar eboy-rE 0 "Register E.")
+;;(defvar eboy-rF 0 "Register F.") flags
+(defvar eboy-rH 0 "Register H.")
+(defvar eboy-rL 0 "Register L.")
 
 (defmacro eboy-add-byte (byte value)
   "Simulate byte behavior: add VALUE to BYTE."
   `(progn (setq ,byte (+ ,byte ,value))
-          (if (> ,byte 255)
-              (setq ,byte (- ,byte 256)))
+          (if (> ,byte #xFF)
+              (setq ,byte (- ,byte #xFF)))
           (if (< ,byte 0)
-              (setq ,byte (+ ,byte 256))))
+              (setq ,byte (+ ,byte #xFF))))
+  )
+
+(defmacro eboy-add-to-short (short value)
+  "Simulate short behavior: add VALUE to SHORT."
+  `(progn (setq ,short (+ ,short ,value))
+          (if (> ,short #xFFFF)
+              (setq ,short (- ,short #xFFFF)))
+          (if (< ,short 0)
+              (setq ,short (+ ,short #xFFFF))))
   )
 
 ;; (defmacro eboy-subtract-byte (byte value)
@@ -65,54 +74,68 @@ Return the binary data as unibyte string."
           (eboy-set-flag ,flags ,:N t)
           (eboy-set-flag ,flags ,:H (= (logand ,reg #xF) #xF))
      )
-)
+  )
 
+(defmacro eboy-inc-rpair (r1 r2 value)
+  "Increase register pair R1 R2 with VALUE."
+  `(let ((rpair (eboy-get-rpair ,r1 ,r2)) )
+     (eboy-add-to-short rpair ,value)
+     (eboy-set-rpair ,r1 ,r2 rpair)))
 
+(defmacro eboy-set-rpair (r1 r2 value)
+  "Put VALUE into register pair R1 and R2."
+  `(progn
+    (setq ,r1 (logand (lsh ,value -8) #xff))
+    (setq ,r2 (logand ,value #xff))))
+
+(defun eboy-get-rpair (r1 r2)
+  "Get short by combining byte register R1 and R2."
+  (logior (lsh r1 8) r2) )
 
 (defun eboy-init-registers ()
   "Initialize all registers."
-  (setq eboy-r-A #x01) ;; 0x01:GB/SGB, 0xFF:GBP, 0x11:GBC
-  (setq eboy-r-B 0)
-  (setq eboy-r-C #x13)
-  (setq eboy-r-D 0)
-  (setq eboy-r-E #xD8)
-  (setq eboy-r-H #x01)
-  (setq eboy-r-L #x4d)
+  (setq eboy-rA #x01) ;; 0x01:GB/SGB, 0xFF:GBP, 0x11:GBC
+  (setq eboy-rB 0)
+  (setq eboy-rC #x13)
+  (setq eboy-rD 0)
+  (setq eboy-rE #xD8)
+  (setq eboy-rH #x01)
+  (setq eboy-rL #x4d)
   )
 
 (defun eboy-init-memory ()
   "Initialize the RAM to some startup values."
-  (eboy-write-byte-to-memory #xFF05 #x00) ; TIMA
-  (eboy-write-byte-to-memory #xFF06 #x00) ; TMA
-  (eboy-write-byte-to-memory #xFF07 #x00) ; TAC
-  (eboy-write-byte-to-memory #xFF10 #x80) ; NR10
-  (eboy-write-byte-to-memory #xFF11 #xBF) ; NR11
-  (eboy-write-byte-to-memory #xFF12 #xF3) ; NR12
-  (eboy-write-byte-to-memory #xFF14 #xBF) ; NR14
-  (eboy-write-byte-to-memory #xFF16 #x3F) ; NR21
-  (eboy-write-byte-to-memory #xFF17 #x00) ; NR22
-  (eboy-write-byte-to-memory #xFF19 #xBF) ; NR24
-  (eboy-write-byte-to-memory #xFF1A #x7F) ; NR30
-  (eboy-write-byte-to-memory #xFF1B #xFF) ; NR31
-  (eboy-write-byte-to-memory #xFF1C #x9F) ; NR32
-  (eboy-write-byte-to-memory #xFF1E #xBF) ; NR33
-  (eboy-write-byte-to-memory #xFF20 #xFF) ; NR41
-  (eboy-write-byte-to-memory #xFF21 #x00) ; NR42
-  (eboy-write-byte-to-memory #xFF22 #x00) ; NR43
-  (eboy-write-byte-to-memory #xFF23 #xBF) ; NR30
-  (eboy-write-byte-to-memory #xFF24 #x77) ; NR50
-  (eboy-write-byte-to-memory #xFF25 #xF3) ; NR51
-  (eboy-write-byte-to-memory #xFF26 #xF1) ; NR52, F1-GB, $F0-SGB
-  (eboy-write-byte-to-memory #xFF40 #x91) ; LCDC
-  (eboy-write-byte-to-memory #xFF42 #x00) ; SCY
-  (eboy-write-byte-to-memory #xFF43 #x00) ; SCX
-  (eboy-write-byte-to-memory #xFF45 #x00) ; LYC
-  (eboy-write-byte-to-memory #xFF47 #xFC) ; BGP
-  (eboy-write-byte-to-memory #xFF48 #xFF) ; OBP0
-  (eboy-write-byte-to-memory #xFF49 #xFF) ; OBP1
-  (eboy-write-byte-to-memory #xFF4A #x00) ; WY
-  (eboy-write-byte-to-memory #xFF4B #x00) ; WX
-  (eboy-write-byte-to-memory #xFFFF #x00) ; IE
+  (eboy-mem-write-byte #xFF05 #x00) ; TIMA
+  (eboy-mem-write-byte #xFF06 #x00) ; TMA
+  (eboy-mem-write-byte #xFF07 #x00) ; TAC
+  (eboy-mem-write-byte #xFF10 #x80) ; NR10
+  (eboy-mem-write-byte #xFF11 #xBF) ; NR11
+  (eboy-mem-write-byte #xFF12 #xF3) ; NR12
+  (eboy-mem-write-byte #xFF14 #xBF) ; NR14
+  (eboy-mem-write-byte #xFF16 #x3F) ; NR21
+  (eboy-mem-write-byte #xFF17 #x00) ; NR22
+  (eboy-mem-write-byte #xFF19 #xBF) ; NR24
+  (eboy-mem-write-byte #xFF1A #x7F) ; NR30
+  (eboy-mem-write-byte #xFF1B #xFF) ; NR31
+  (eboy-mem-write-byte #xFF1C #x9F) ; NR32
+  (eboy-mem-write-byte #xFF1E #xBF) ; NR33
+  (eboy-mem-write-byte #xFF20 #xFF) ; NR41
+  (eboy-mem-write-byte #xFF21 #x00) ; NR42
+  (eboy-mem-write-byte #xFF22 #x00) ; NR43
+  (eboy-mem-write-byte #xFF23 #xBF) ; NR30
+  (eboy-mem-write-byte #xFF24 #x77) ; NR50
+  (eboy-mem-write-byte #xFF25 #xF3) ; NR51
+  (eboy-mem-write-byte #xFF26 #xF1) ; NR52, F1-GB, $F0-SGB
+  (eboy-mem-write-byte #xFF40 #x91) ; LCDC
+  (eboy-mem-write-byte #xFF42 #x00) ; SCY
+  (eboy-mem-write-byte #xFF43 #x00) ; SCX
+  (eboy-mem-write-byte #xFF45 #x00) ; LYC
+  (eboy-mem-write-byte #xFF47 #xFC) ; BGP
+  (eboy-mem-write-byte #xFF48 #xFF) ; OBP0
+  (eboy-mem-write-byte #xFF49 #xFF) ; OBP1
+  (eboy-mem-write-byte #xFF4A #x00) ; WY
+  (eboy-mem-write-byte #xFF4B #x00) ; WX
+  (eboy-mem-write-byte #xFFFF #x00) ; IE
   )
 
 (defun eboy-debug-dump-memory (start-address end-address)
@@ -120,7 +143,7 @@ Return the binary data as unibyte string."
   (insert (format "\nMemory: 0x%04x - 0x%04x\n" start-address end-address))
   (dotimes (i (1+ (- end-address start-address)))
     (let* ((address (+ start-address i))
-           (data (eboy-read-byte-from-memory (+ start-address i))))
+           (data (eboy-mem-read-byte (+ start-address i))))
       (if (= (mod address #x10) 0)
           (insert (format "\n%04x: " address)))
       (insert (format "%02x " data))
@@ -132,6 +155,11 @@ Return the binary data as unibyte string."
 (defun eboy-log (logstring)
   "Log string LOGSTRING."
   (if eboy-debug-2 (insert logstring))
+  )
+
+(defun eboy-msg (msg)
+  "Write a MSG string to the message buffer."
+  (message "eboy: %s" msg)
   )
 
 (defvar eboy-ram (make-vector (* 8 1024) 0) "The 8 kB interal RAM.")
@@ -164,13 +192,12 @@ Return the binary data as unibyte string."
 ;; --------------------------- 0000 --
 ;; * NOTE: b = bit, B = byte
 
-(defun eboy-read-byte-from-memory (address)
+(defun eboy-mem-read-byte (address)
   "Read byte from ADDRESS."
   (cond
-   ;; Iterrupt Enable Register??
-
    ((and (>= address #xFF80) (<= address #xFFFF))
     ;;(message "Internal RAM")
+    (if (= address #xFFFF) (eboy-msg "Read IE: Interrupt Enable.") )
     (aref eboy-ram (- address #xE000))
     )
    ((and (>= address #xFF4C) (< address #xFF80))
@@ -179,8 +206,34 @@ Return the binary data as unibyte string."
     )
    ((and (>= address #xFF00) (< address #xFF4C))
     ;;(message "I/O ports")
-    (aref eboy-ram (- address #xE000))
+    (cond
+     ((= address #xFF4B) (eboy-msg "Read WX: Window X position.") )
+     ((= address #xFF4B) (eboy-msg "Read WX: Window X position.") )
+     ((= address #xFF4A) (eboy-msg "Read WY: Window Y position.") )
+     ((= address #xFF49) (eboy-msg "Read OBP1: Object Palette 1 Data.") )
+     ((= address #xFF48) (eboy-msg "Read OBPO: Object Palette 0 Data.") )
+     ((= address #xFF47) (eboy-msg "Read BGP: BG & Window Palette DATA.") )
+     ;;((= address #xFF46) (eboy-msg "Read DMA: DMA Transfer and Start Address.") )
+     ((= address #xFF45) (eboy-msg "Read LYC: LY Compare.") )
+     ((= address #xFF44) (eboy-msg "Read LY: LCDC Y Coordinate.") )
+     ((= address #xFF43) (eboy-msg "Read SCX: Scroll X.") )
+     ((= address #xFF42) (eboy-msg "Read SCY: Scroll Y.") )
+     ((= address #xFF41) (eboy-msg "Read STAT: LCDC Status.") )
+     ((= address #xFF40) (eboy-msg "Read LCDC: LCD Control.") )
+     ;; in between sound registers, but not consecutive, some unknow address.
+     ((= address #xFF0F) (eboy-msg "Read IF: Interrupt Flag.") )
+     ((= address #xFF0F) (eboy-msg "Read IF: Interrupt Flag.") )
+     ((= address #xFF07) (eboy-msg "Read TAC: Timer Control.") )
+     ((= address #xFF06) (eboy-msg "Read TMA: Timer Modulo.") )
+     ((= address #xFF05) (eboy-msg "Read TIMA: Timer Counter.") )
+     ((= address #xFF04) (eboy-msg "Read DIV: Divider Register.") )
+     ((= address #xFF02) (eboy-msg "Read SC: SIO control.") )
+     ((= address #xFF01) (eboy-msg "Read SB: Serial transfer data.") )
+     ((= address #xFF00) (eboy-msg "Read P1: Joy Pad info and system type register.") ))
+
+     (aref eboy-ram (- address #xE000))
     )
+
    ((and (>= address #xFEA0) (< address #xFF00))
     ;;(message "Empty but unusable for I/O")
     (aref eboy-ram (- address #xE000))
@@ -214,8 +267,9 @@ Return the binary data as unibyte string."
     (aref eboy-rom address))
    ))
 
-(defun eboy-write-byte-to-memory (address data)
+(defun eboy-mem-write-byte (address data)
   "Write DATA byte to memory at ADDRESS."
+  (setq data (logand data #xff))
   (cond
    ;; Iterrupt Enable Register??
 
@@ -227,7 +281,32 @@ Return the binary data as unibyte string."
     (aset eboy-ram (- address #xE000) data))
    ((and (>= address #xFF00) (< address #xFF4C))
     ;; (message "Write I/O ports")
-    (aset eboy-ram (- address #xE000) data))
+    (cond
+     ((= address #xFF4B) (eboy-msg "Write WX: Window X position.") )
+     ((= address #xFF4B) (eboy-msg "Write WX: Window X position.") )
+     ((= address #xFF4A) (eboy-msg "Write WY: Window Y position.") )
+     ((= address #xFF49) (eboy-msg "Write OBP1: Object Palette 1 Data.") )
+     ((= address #xFF48) (eboy-msg "Write OBPO: Object Palette 0 Data.") )
+     ((= address #xFF47) (eboy-msg "Write BGP: BG & Window Palette DATA.") )
+     ((= address #xFF46) (eboy-msg "Write DMA: DMA Transfer and Start Address.") )
+     ((= address #xFF45) (eboy-msg "Write LYC: LY Compare.") )
+     ;;((= address #xFF44) (eboy-msg "Read LY: LCDC Y Coordinate.") )
+     ((= address #xFF43) (eboy-msg "Write SCX: Scroll X.") )
+     ((= address #xFF42) (eboy-msg "Write SCY: Scroll Y.") )
+     ((= address #xFF41) (eboy-msg "Write STAT: LCDC Status.") )
+     ((= address #xFF40) (eboy-msg "Write LCDC: LCD Control.") )
+     ;; in between sound registers, but not consecutive, some unknow address.
+     ((= address #xFF0F) (eboy-msg "Write IF: Interrupt Flag.") )
+     ((= address #xFF0F) (eboy-msg "Write IF: Interrupt Flag.") )
+     ((= address #xFF07) (eboy-msg "Write TAC: Timer Control.") )
+     ((= address #xFF06) (eboy-msg "Write TMA: Timer Modulo.") )
+     ((= address #xFF05) (eboy-msg "Write TIMA: Timer Counter.") )
+     ((= address #xFF04) (eboy-msg "Write DIV: Divider Register.") )
+     ((= address #xFF02) (eboy-msg "Write SC: SIO control.") )
+     ((= address #xFF01) (eboy-msg "Write SB: Serial transfer data.") )
+     ((= address #xFF00) (eboy-msg "Write P1: Joy Pad info and system type register.") ))
+
+     (aset eboy-ram (- address #xE000) data))
    ((and (>= address #xFEA0) (< address #xFF00))
     ;; (message "Write Empty but unusable for I/O")
     (aset eboy-ram (- address #xE000) data))
@@ -257,18 +336,39 @@ Return the binary data as unibyte string."
     )
    ))
 
-;;(eboy-write-byte-to-memory #x4100 23)
-;;(message "message %x" (eboy-read-byte-from-memory #x101))
+(defun eboy-mem-write-short (address data)
+  "Write DATA short to memory at ADDRESS.
+Little Endian."
+  (eboy-mem-write-byte address (logand data #xFF))
+  (eboy-mem-write-byte (1+ address) (logand (lsh data -8) #xFF))
+  )
+
+(defun eboy-mem-read-short (address)
+  "Read short from memory at ADDRESS.
+Little Endian."
+  (logior (lsh (eboy-mem-read-byte (1+ address)) 8) (eboy-mem-read-byte address))
+  )
+
+;;(eboy-mem-write-byte #x4100 23)
+;;(message "message %x" (eboy-mem-read-byte #x101))
 
 (defun eboy-debug-print-flags (flags)
   "Print the FLAGS."
   (insert (format "Flags; Z:%s N:%s H:%s C:%s\n" (eboy-get-flag flags :Z) (eboy-get-flag  flags :N) (eboy-get-flag flags :H) (eboy-get-flag flags :C)))
   )
 
+(defun eboy-print-registers ()
+  "Insert the register values."
+  (interactive)
+  (insert (format "A:0x%02x B:0x%02x C:0x%02x D:0x%02x E:0x%02x H:0x%02x L:0x%02x" eboy-rA  eboy-rB  eboy-rC  eboy-rD  eboy-rE  eboy-rH  eboy-rL)))
+
 (defun eboy-debug-print-cpu-state (flags)
   "Print the registers and FLAGS."
-  (insert (format "\t\t\t\tReg;  A:%3d B:%003d C:%3d D:%3d E:%3d H:%3d L:%3d  Flags; Z:%3s N:%3s H:%3s C:%3s\n" eboy-r-A  eboy-r-B  eboy-r-C  eboy-r-D  eboy-r-E  eboy-r-H  eboy-r-L (eboy-get-flag flags :Z) (eboy-get-flag  flags :N) (eboy-get-flag flags :H) (eboy-get-flag flags :C)))
-  )
+  (insert "\t\t\t\t")
+  (eboy-print-registers)
+  (insert (format )" Z:%3s N:%3s H:%3s C:%3s\n"  (eboy-get-flag flags :Z) (eboy-get-flag  flags :N) (eboy-get-flag flags :H) (eboy-get-flag flags :C)))
+
+
 
 ;; (defun eboy-set-flags (flags new-flags)
 ;;   "Set FLAGS to NEW-FLAGS."
@@ -332,31 +432,29 @@ Return the binary data as unibyte string."
   (setq eboy-pc (+ eboy-pc nr-bytes))
   )
 
-(defun eboy-set-r-BC (value)
+(defun eboy-set-rBC (value)
   "Put VALUE into registers BC."
-  (setq eboy-r-B (logand (lsh value -8) #xff))
-  (setq eboy-r-C (logand value #xff))  )
-
-(defun eboy-set-r-DE (value)
+  (eboy-set-rpair eboy-rB eboy-rC value))
+(defun eboy-set-rDE (value)
   "Put VALUE into registers DE."
-  (setq eboy-r-D (logand (lsh value -8) #xff))
-  (setq eboy-r-E (logand value #xff))  )
+  (eboy-set-rpair eboy-rD eboy-rE value))
+(defun eboy-set-rHL (value)
+  "Put VALUE into registers HL."
+  (eboy-set-rpair eboy-rH eboy-rL value))
 
-(defun eboy-set-r-HL (value)
-  "Put VALUE into registers BC."
-  ;;(if (> value #xFFFF)
-;;      (setq value (- value #xFFFF)))
-  (setq eboy-r-H (logand (lsh value -8) #xff))
-  (setq eboy-r-L (logand value #xff)))
-
-(defun eboy-get-r-HL ()
+(defun eboy-get-rBC ()
+  "Get short by combining byte register B and C."
+  (eboy-get-rpair eboy-rB eboy-rC) )
+(defun eboy-get-rDE ()
+  "Get short by combining byte register D and E."
+  (eboy-get-rpair eboy-rD eboy-rE) )
+(defun eboy-get-rHL ()
   "Get short by combining byte register H and L."
-  (logior (lsh eboy-r-H 8) eboy-r-L) )
+  (eboy-get-rpair eboy-rH eboy-rL) )
 
 (defun eboy-debug-unimplemented-opcode (opcode)
   "Print OPCODE is unimplemented."
-  (insert (format "Unimplemented opcode 0x%02x" opcode))
-  )
+  (insert (format "Unimplemented opcode 0x%02x" opcode)))
 
 
 (defun eboy-process-opcode (opcode flags)
@@ -367,13 +465,11 @@ Return the binary data as unibyte string."
     (#x00 (eboy-log " NOP"))
 
     ;; LD nn,n
-    (#x06
-     ;;(eboy-debug-unimplemented-opcode 6)
-     (eboy-log (format " LD B, #0x%02x" (eboy-get-byte)))
-     (setq eboy-r-B (eboy-get-byte))
+    (#x06 (eboy-log (format " LD B, #0x%02x" (eboy-get-byte)))
+     (setq eboy-rB (eboy-get-byte))
      (eboy-inc-pc 1))
     (#x0E (eboy-log (format " LD C, #0x%02x" (eboy-get-byte)))
-          (setq eboy-r-C (eboy-get-byte))
+          (setq eboy-rC (eboy-get-byte))
           (eboy-inc-pc 1))
     (#x16 (eboy-log (format " LD D, #0x%02x" (eboy-get-byte)))
           (eboy-inc-pc 1))
@@ -385,64 +481,69 @@ Return the binary data as unibyte string."
           (eboy-inc-pc 1))
 
     ;; ;; LD r1,r2
-    (#x7F (eboy-log (format " LD A,A")) (assert nil t "unimplemented opcode"))
-    (#x78 (eboy-log (format " LD A,B")) (assert nil t "unimplemented opcode"))
-    (#x79 (eboy-log (format " LD A,C")) (assert nil t "unimplemented opcode"))
-    (#x7A (eboy-log (format " LD A,D")) (assert nil t "unimplemented opcode"))
-    (#x7B (eboy-log (format " LD A,E")) (assert nil t "unimplemented opcode"))
-    (#x7C (eboy-log (format " LD A,H")) (assert nil t "unimplemented opcode"))
-    (#x7D (eboy-log (format " LD A,L")) (assert nil t "unimplemented opcode"))
-    (#x7E (eboy-log (format " LD A,(HL)")) (assert nil t "unimplemented opcode"))
-    (#x40 (eboy-log (format " LD B,B")) (assert nil t "unimplemented opcode"))
-    (#x41 (eboy-log (format " LD B,C")) (assert nil t "unimplemented opcode"))
-    (#x42 (eboy-log (format " LD B,D")) (assert nil t "unimplemented opcode"))
-    (#x43 (eboy-log (format " LD B,E")) (assert nil t "unimplemented opcode"))
-    (#x44 (eboy-log (format " LD B,H")) (assert nil t "unimplemented opcode"))
-    (#x45 (eboy-log (format " LD B,L")) (assert nil t "unimplemented opcode"))
-    (#x46 (eboy-log (format " LD B,(HL)")) (assert nil t "unimplemented opcode"))
-    (#x48 (eboy-log (format " LD C,B")) (assert nil t "unimplemented opcode"))
-    (#x49 (eboy-log (format " LD C,C")) (assert nil t "unimplemented opcode"))
-    (#x4A (eboy-log (format " LD C,D")) (assert nil t "unimplemented opcode"))
-    (#x4B (eboy-log (format " LD C,E")) (assert nil t "unimplemented opcode"))
-    (#x4C (eboy-log (format " LD C,H")) (assert nil t "unimplemented opcode"))
-    (#x4D (eboy-log (format " LD C,L")) (assert nil t "unimplemented opcode"))
-    (#x4E (eboy-log (format " LD C,(HL)")) (assert nil t "unimplemented opcode"))
-    (#x50 (eboy-log (format " LD D,B")) (assert nil t "unimplemented opcode"))
-    (#x51 (eboy-log (format " LD D,C")) (assert nil t "unimplemented opcode"))
-    (#x52 (eboy-log (format " LD D,D")) (assert nil t "unimplemented opcode"))
-    (#x53 (eboy-log (format " LD D,E")) (assert nil t "unimplemented opcode"))
-    (#x54 (eboy-log (format " LD D,H")) (assert nil t "unimplemented opcode"))
-    (#x55 (eboy-log (format " LD D,L")) (assert nil t "unimplemented opcode"))
-    (#x56 (eboy-log (format " LD D,(HL)")) (assert nil t "unimplemented opcode"))
-    (#x58 (eboy-log (format " LD E,B")) (assert nil t "unimplemented opcode"))
-    (#x59 (eboy-log (format " LD E,C")) (assert nil t "unimplemented opcode"))
-    (#x5A (eboy-log (format " LD E,D")) (assert nil t "unimplemented opcode"))
-    (#x5B (eboy-log (format " LD E,E")) (assert nil t "unimplemented opcode"))
-    (#x5C (eboy-log (format " LD E,H")) (assert nil t "unimplemented opcode"))
-    (#x5D (eboy-log (format " LD E,L")) (assert nil t "unimplemented opcode"))
-    (#x5E (eboy-log (format " LD E,(HL)")) (assert nil t "unimplemented opcode"))
-    (#x60 (eboy-log (format " LD H,B")) (assert nil t "unimplemented opcode"))
-    (#x61 (eboy-log (format " LD H,C")) (assert nil t "unimplemented opcode"))
-    (#x62 (eboy-log (format " LD H,D")) (assert nil t "unimplemented opcode"))
-    (#x63 (eboy-log (format " LD H,E")) (assert nil t "unimplemented opcode"))
-    (#x64 (eboy-log (format " LD H,H")) (assert nil t "unimplemented opcode"))
-    (#x65 (eboy-log (format " LD H,L")) (assert nil t "unimplemented opcode"))
-    (#x66 (eboy-log (format " LD H,(HL)")) (assert nil t "unimplemented opcode"))
-    (#x68 (eboy-log (format " LD L,B")) (assert nil t "unimplemented opcode"))
-    (#x69 (eboy-log (format " LD L,C")) (assert nil t "unimplemented opcode"))
-    (#x6A (eboy-log (format " LD L,D")) (assert nil t "unimplemented opcode"))
-    (#x6B (eboy-log (format " LD L,E")) (assert nil t "unimplemented opcode"))
-    (#x6C (eboy-log (format " LD L,H")) (assert nil t "unimplemented opcode"))
-    (#x6D (eboy-log (format " LD L,L")) (assert nil t "unimplemented opcode"))
-    (#x6E (eboy-log (format " LD L,(HL)")) (assert nil t "unimplemented opcode"))
-    (#x70 (eboy-log (format " LD (HL),B")) (assert nil t "unimplemented opcode"))
-    (#x71 (eboy-log (format " LD (HL),C")) (assert nil t "unimplemented opcode"))
-    (#x72 (eboy-log (format " LD (HL),D")) (assert nil t "unimplemented opcode"))
-    (#x73 (eboy-log (format " LD (HL),E")) (assert nil t "unimplemented opcode"))
-    (#x74 (eboy-log (format " LD (HL),H")) (assert nil t "unimplemented opcode"))
-    (#x75 (eboy-log (format " LD (HL),L")) (assert nil t "unimplemented opcode"))
+    (#x7F (eboy-log (format " LD A,A")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x78 (eboy-log (format " LD A,B"))
+          (setq eboy-rA eboy-rB)) ;; 4
+    (#x79 (eboy-log (format " LD A,C"))
+          (setq eboy-rA eboy-rC)) ;; 4
+    (#x7A (eboy-log (format " LD A,D")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x7B (eboy-log (format " LD A,E")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x7C (eboy-log (format " LD A,H")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x7D (eboy-log (format " LD A,L")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x7E (eboy-log (format " LD A,(HL)")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x40 (eboy-log (format " LD B,B")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x41 (eboy-log (format " LD B,C")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x42 (eboy-log (format " LD B,D")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x43 (eboy-log (format " LD B,E")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x44 (eboy-log (format " LD B,H")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x45 (eboy-log (format " LD B,L")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x46 (eboy-log (format " LD B,(HL)")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x48 (eboy-log (format " LD C,B")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x49 (eboy-log (format " LD C,C")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x4A (eboy-log (format " LD C,D")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x4B (eboy-log (format " LD C,E")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x4C (eboy-log (format " LD C,H")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x4D (eboy-log (format " LD C,L")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x4E (eboy-log (format " LD C,(HL)")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x50 (eboy-log (format " LD D,B")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x51 (eboy-log (format " LD D,C")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x52 (eboy-log (format " LD D,D")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x53 (eboy-log (format " LD D,E")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x54 (eboy-log (format " LD D,H")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x55 (eboy-log (format " LD D,L")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x56 (eboy-log (format " LD D,(HL)"))
+          (setq eboy-rD (eboy-mem-read-byte (eboy-get-rHL)))
+          ) ;; 8
+    (#x58 (eboy-log (format " LD E,B")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x59 (eboy-log (format " LD E,C")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x5A (eboy-log (format " LD E,D")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x5B (eboy-log (format " LD E,E")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x5C (eboy-log (format " LD E,H")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x5D (eboy-log (format " LD E,L")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x5E (eboy-log (format " LD E,(HL)"))
+          (setq eboy-rE (eboy-mem-read-byte (eboy-get-rHL)))) ;; 8
+    (#x60 (eboy-log (format " LD H,B")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x61 (eboy-log (format " LD H,C")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x62 (eboy-log (format " LD H,D")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x63 (eboy-log (format " LD H,E")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x64 (eboy-log (format " LD H,H")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x65 (eboy-log (format " LD H,L")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x66 (eboy-log (format " LD H,(HL)")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x68 (eboy-log (format " LD L,B")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x69 (eboy-log (format " LD L,C")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x6A (eboy-log (format " LD L,D")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x6B (eboy-log (format " LD L,E")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x6C (eboy-log (format " LD L,H")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x6D (eboy-log (format " LD L,L")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x6E (eboy-log (format " LD L,(HL)")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x70 (eboy-log (format " LD (HL),B")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x71 (eboy-log (format " LD (HL),C")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x72 (eboy-log (format " LD (HL),D")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x73 (eboy-log (format " LD (HL),E")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x74 (eboy-log (format " LD (HL),H")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x75 (eboy-log (format " LD (HL),L")) (assert nil t "unimplemented opcode")) ;; 8
     (#x36 (eboy-log (format " LD (HL),0x%02x" (eboy-get-byte)))
-          (eboy-write-byte-to-memory (eboy-get-r-HL) (eboy-get-byte))
+          (eboy-mem-write-byte (eboy-get-rHL) (eboy-get-byte))
           (eboy-inc-pc 1)) ;; 12
 
     ;; LD A,n
@@ -450,59 +551,68 @@ Return the binary data as unibyte string."
     (#x1A (eboy-log (format " LD A,(DE)")) (assert nil t "unimplemented opcode"))
     (#xFA (eboy-log (format " LD A,(nn)")) (assert nil t "unimplemented opcode"))
     (#x3E (eboy-log (format " LD A,#0x%02x" (eboy-get-byte)))
-          (setq eboy-r-A (eboy-get-byte))
+          (setq eboy-rA (eboy-get-byte))
           (eboy-inc-pc 1)) ;; 8
 
     ;; LD n,A - Put value A into n.
     ;; n = A,B,C,D,E,H,L,(BC),(DE),(HL),(nn)
     ;; nn = two byte immediate value. (LS byte first.)
-    (#x47 (eboy-log (format " LD B,A")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x4F (eboy-log (format " LD C,A")) (assert nil t "unimplemented opcode"))                      ;; 4
+    (#x47 (eboy-log (format " LD B,A"))
+          (setq eboy-rB eboy-rA)
+          )                      ;; 4
+    (#x4F (eboy-log (format " LD C,A"))
+          (setq eboy-rC eboy-rA))                      ;; 4
     (#x57 (eboy-log (format " LD D,A")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x5F (eboy-log (format " LD E,A")) (assert nil t "unimplemented opcode"))                      ;; 4
+    (#x5F (eboy-log (format " LD E,A"))
+          (setq eboy-rE eboy-rA)
+          )                      ;; 4
     (#x67 (eboy-log (format " LD H,A")) (assert nil t "unimplemented opcode"))                      ;; 4
     (#x6F (eboy-log (format " LD L,A")) (assert nil t "unimplemented opcode"))                      ;; 4
     (#x02 (eboy-log (format " LD (BC),A") (assert nil t "unimplemented opcode"))
-          ;;(eboy-set-r-BC eboy-r-A) maybe (BC) means memory address?
+          ;;(eboy-set-rBC eboy-rA) maybe (BC) means memory address?
           )                   ;; 8
     (#x12 (eboy-log (format " LD (DE),A")) (assert nil t "unimplemented opcode"))                   ;; 8
     (#x77 (eboy-log (format " LD (HL),A")) (assert nil t "unimplemented opcode"))                   ;; 8
     (#xEA (eboy-log (format " LD (0x%0004x),A" (eboy-get-short)))
-          (eboy-write-byte-to-memory (eboy-get-short) eboy-r-A)
+          (eboy-mem-write-byte (eboy-get-short) eboy-rA)
           (eboy-inc-pc 2))                   ;; 16
 
     ;; Put value at address $FF00 + register C into A.
     (#xF2 (eboy-log (format " LD A,($FF00+C)")) (assert nil t "unimplemented opcode") )
     ;; Put A into address $FF00 + register C.
-    (#xE2 (eboy-log (format " LD ($FF00+C),A")) (assert nil t "unimplemented opcode"))
+    (#xE2 (eboy-log (format " LD ($FF00+C),A"))
+          (eboy-mem-write-byte (+ #xFF00 eboy-rC) eboy-rA)
+          ) ;; 8
     ;; Put value at address HL into A. Decrement HL.
     (#x3A (eboy-log (format " LD A,(HLD)")) (assert nil t "unimplemented opcode"))
     ;; Put A into memory address HL. Decrement HL.
     (#x32 (eboy-log (format " LD (HLD),A"))
-          (eboy-write-byte-to-memory (eboy-get-r-HL) eboy-r-A)
-          (eboy-set-r-HL (1- (eboy-get-r-HL)))
+          (eboy-mem-write-byte (eboy-get-rHL) eboy-rA)
+          (eboy-set-rHL (1- (eboy-get-rHL)))
           ) ;; 8
     ;; Put value at address HL into A. Increment HL.
     (#x2A (eboy-log (format " LD A,(HLI)"))
-          (setq eboy-r-A (eboy-read-byte-from-memory (eboy-get-r-HL)))
-          (eboy-set-r-HL (1+ (eboy-get-r-HL)))) ;; 8
+          (setq eboy-rA (eboy-mem-read-byte (eboy-get-rHL)))
+          (eboy-set-rHL (1+ (eboy-get-rHL)))) ;; 8
 
     ;; Put A into memory address HL. Increment HL.
     (#x22 (eboy-log (format " LD (HLI),A")) (assert nil t "unimplemented opcode"))
     ;; Put A into memory address $FF00+n
-    (#xE0 (eboy-log (format " LD ($FF00+0x%02x),A (0x%02x)" (eboy-get-byte) eboy-r-A))
-          (eboy-write-byte-to-memory (+ #xFF00 (eboy-get-byte)) eboy-r-A)
+    (#xE0 (eboy-log (format " LD ($FF00+0x%02x),A (0x%02x)" (eboy-get-byte) eboy-rA))
+          (eboy-mem-write-byte (+ #xFF00 (eboy-get-byte)) eboy-rA)
           (eboy-inc-pc 1)) ;; 12
     ;; Put memory address $FF00+n into A.
-    (#xF0 (eboy-log (format " LD A,($FF00+0x%02x) (0x%02x)" (eboy-get-byte) (eboy-read-byte-from-memory (+ #xFF00 (eboy-get-byte)))))
-          (setq eboy-r-A (eboy-read-byte-from-memory (+ #xFF00 (eboy-get-byte))))
+    (#xF0 (eboy-log (format " LD A,($FF00+0x%02x) (0x%02x)" (eboy-get-byte) (eboy-mem-read-byte (+ #xFF00 (eboy-get-byte)))))
+          (setq eboy-rA (eboy-mem-read-byte (+ #xFF00 (eboy-get-byte))))
           (eboy-inc-pc 1)) ;; 12
 
     ;; 16 bit loads, nn = 16 bit immediate value
-    (#x01 (eboy-log (format " LD BC, $%04x" (eboy-get-short)))(eboy-inc-pc 2) (assert nil t "unimplemented opcode")) ;; 12
+    (#x01 (eboy-log (format " LD BC, $%04x" (eboy-get-short)))
+          (eboy-set-rBC (eboy-get-short))
+          (eboy-inc-pc 2)) ;; 12
     (#x11 (eboy-log (format " LD DE, $%04x" (eboy-get-short))) (assert nil t "unimplemented opcode")) ;; 12
     (#x21 (eboy-log (format " LD HL, $%04x" (eboy-get-short)))
-          (eboy-set-r-HL (eboy-get-short))
+          (eboy-set-rHL (eboy-get-short))
           (eboy-inc-pc 2)) ;; 12
     (#x31 (eboy-log (format " LD SP, $%04x" (eboy-get-short)))
           (setq eboy-sp (eboy-get-short))
@@ -524,7 +634,10 @@ Return the binary data as unibyte string."
     ;; Decrement Stack Pointer (SP) twice.
     (#xF5 (eboy-log (format " PUSH AF")) (assert nil t "unimplemented opcode"))                      ;; 16
     (#xC5 (eboy-log (format " PUSH BC")) (assert nil t "unimplemented opcode"))                      ;; 16
-    (#xD5 (eboy-log (format " PUSH DE")) (assert nil t "unimplemented opcode"))                      ;; 16
+    (#xD5 (eboy-log (format " PUSH DE"))
+          (decf eboy-sp 2)
+          (eboy-mem-write-short eboy-sp (eboy-get-rDE))
+          )                      ;; 16
     (#xE5 (eboy-log (format " PUSH HL")) (assert nil t "unimplemented opcode"))                      ;; 16
 
     ;; Pop two bytes off stack into register pair nn.
@@ -532,7 +645,10 @@ Return the binary data as unibyte string."
     (#xF1 (eboy-log (format " POP AF")) (assert nil t "unimplemented opcode"))                      ;; 12
     (#xC1 (eboy-log (format " POP BC")) (assert nil t "unimplemented opcode"))                      ;; 12
     (#xD1 (eboy-log (format " POP DE")) (assert nil t "unimplemented opcode"))                      ;; 12
-    (#xE1 (eboy-log (format " POP HL")) (assert nil t "unimplemented opcode"))                      ;; 12
+    (#xE1 (eboy-log (format " POP HL"))
+          (eboy-set-rHL (eboy-mem-read-short eboy-sp))
+          (incf eboy-sp 2)
+          )                      ;; 12
 
 
     ;; ADD A,n    -    Add n to A.
@@ -541,7 +657,14 @@ Return the binary data as unibyte string."
     ;; N - Reset.
     ;; H - Set if carry from bit 3.
     ;; C - Set if carry from bit 7.
-    (#x87 (eboy-log (format " ADD A,A")) (assert nil t "unimplemented opcode"))                      ;; 4
+    (#x87 (eboy-log (format " ADD A,A"))
+          (let ((rAold eboy-rA))
+            (eboy-add-byte eboy-rA eboy-rA)
+            (eboy-set-flag flags :Z (zerop eboy-rA))
+            (eboy-set-flag flags :N nil)
+            (eboy-set-flag flags :H (< (logand eboy-rA #xf) (logand rAold #xf)))
+            (eboy-set-flag flags :C (< (logand eboy-rA #xff) (logand rAold #xff))))
+          )                      ;; 4
     (#x80 (eboy-log (format " ADD A,B")) (assert nil t "unimplemented opcode"))                      ;; 4
     (#x81 (eboy-log (format " ADD A,C")) (assert nil t "unimplemented opcode"))                      ;; 4
     (#x82 (eboy-log (format " ADD A,D")) (assert nil t "unimplemented opcode"))                      ;; 4
@@ -550,7 +673,7 @@ Return the binary data as unibyte string."
     (#x85 (eboy-log (format " ADD A,L")) (assert nil t "unimplemented opcode"))                      ;; 4
     (#x86 (eboy-log (format " ADD A,(HL)")) (assert nil t "unimplemented opcode"))                   ;; 8
     (#xC6 (eboy-log (format " ADD A,#"))
-          (setq eboy-r-A (+ eboy-r-A (eboy-get-byte))))                      ;; 8
+          (eboy-add-byte eboy-rA (+ eboy-rA (eboy-get-byte))))                      ;; 8
 
     ;;ADC A,n    -   Add n + Carry flag to A.
     ;; Flags affected:
@@ -608,13 +731,26 @@ Return the binary data as unibyte string."
     ;; C - Reset.
     (#xA7 (eboy-log (format " AND A")) (assert nil t "unimplemented opcode"))                        ;; 4
     (#xA0 (eboy-log (format " AND B")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#xA1 (eboy-log (format " AND C")) (assert nil t "unimplemented opcode"))                        ;; 4
+    (#xA1 (eboy-log (format " AND C"))
+          (setq eboy-rA (logand eboy-rA eboy-rC))
+          (eboy-set-flag flags :Z (zerop eboy-rA))
+          (eboy-set-flag flags :N nil)
+          (eboy-set-flag flags :H t)
+          (eboy-set-flag flags :C nil)
+          )                        ;; 4
     (#xA2 (eboy-log (format " AND D")) (assert nil t "unimplemented opcode"))                        ;; 4
     (#xA3 (eboy-log (format " AND E")) (assert nil t "unimplemented opcode"))                        ;; 4
     (#xA4 (eboy-log (format " AND H")) (assert nil t "unimplemented opcode"))                        ;; 4
     (#xA5 (eboy-log (format " AND L")) (assert nil t "unimplemented opcode"))                        ;; 4
     (#xA6 (eboy-log (format " AND (HL)")) (assert nil t "unimplemented opcode"))                     ;; 8
-    (#xE6 (eboy-log (format " AND #")) (assert nil t "unimplemented opcode"))                        ;; 8
+    (#xE6 (eboy-log (format " AND # (#%02x) " (eboy-get-byte)))
+          (setq eboy-rA (logand eboy-rA (eboy-get-byte)))
+          (eboy-set-flag flags :Z (zerop eboy-rA))
+          (eboy-set-flag flags :N nil)
+          (eboy-set-flag flags :H t)
+          (eboy-set-flag flags :C nil)
+          (eboy-inc-pc 1)
+          )                        ;; 8
 
     ;; OR n - Logical OR n with register A, result in A.
     ;; Flags affected:
@@ -623,8 +759,19 @@ Return the binary data as unibyte string."
     ;; H - Reset.
     ;; C - Reset.
     (#xB7 (eboy-log (format " OR A")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#xB0 (eboy-log (format " OR B")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#xB1 (eboy-log (format " OR C")) (assert nil t "unimplemented opcode"))                        ;; 4
+    (#xB0 (eboy-log (format " OR B"))
+          (setq eboy-rA (logior eboy-rB eboy-rA))
+          (eboy-set-flag flags :Z (zerop eboy-rA))
+          (eboy-set-flag flags :N nil)
+          (eboy-set-flag flags :H nil)
+          (eboy-set-flag flags :C nil))                        ;; 4
+    (#xB1 (eboy-log (format " OR C"))
+          (setq eboy-rA (logior eboy-rC eboy-rA))
+          (eboy-set-flag flags :Z (zerop eboy-rA))
+          (eboy-set-flag flags :N nil)
+          (eboy-set-flag flags :H nil)
+          (eboy-set-flag flags :C nil)
+          )                        ;; 4
     (#xB2 (eboy-log (format " OR D")) (assert nil t "unimplemented opcode"))                        ;; 4
     (#xB3 (eboy-log (format " OR E")) (assert nil t "unimplemented opcode"))                        ;; 4
     (#xB4 (eboy-log (format " OR H")) (assert nil t "unimplemented opcode"))                        ;; 4
@@ -639,15 +786,21 @@ Return the binary data as unibyte string."
     ;; H - Reset.
     ;; C - Reset.
     (#xAF (eboy-log (format " XOR A "))
-          (setq eboy-r-A (logxor eboy-r-A eboy-r-A))
-          (if (zerop eboy-r-A)
-              (eboy-set-flag flags :Z t))
+          (setq eboy-rA (logxor eboy-rA eboy-rA))
+          (eboy-set-flag flags :Z (zerop eboy-rA))
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H nil)
           (eboy-set-flag flags :C nil)
           ) ;; 4
     (#xA8 (eboy-log (format " XOR B ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#xA9 (eboy-log (format " XOR C ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#xA9 (eboy-log (format " XOR C "))
+          (setq eboy-rA (logxor eboy-rC eboy-rA))
+          (eboy-set-flag flags :Z (zerop eboy-rA))
+          (eboy-set-flag flags :N nil)
+          (eboy-set-flag flags :H nil)
+          (eboy-set-flag flags :C nil)
+
+          ) ;; 4
     (#xAA (eboy-log (format " XOR D ")) (assert nil t "unimplemented opcode")) ;; 4
     (#xAB (eboy-log (format " XOR E ")) (assert nil t "unimplemented opcode")) ;; 4
     (#xAC (eboy-log (format " XOR H ")) (assert nil t "unimplemented opcode")) ;; 4
@@ -671,10 +824,10 @@ Return the binary data as unibyte string."
     (#xBE (eboy-log (format " CP (HL) ")) (assert nil t "unimplemented opcode")) ;; 8
     (#xFE (eboy-log (format " CP # (0x%02x)" (eboy-get-byte)))
           (let ((n (eboy-get-byte)))
-            (eboy-set-flag flags :Z (= eboy-r-A n))
+            (eboy-set-flag flags :Z (= eboy-rA n))
             (eboy-set-flag flags :N t)
-            (eboy-set-flag flags :H (> (logand (- eboy-r-A n) #x0F) (logand eboy-r-A #x0F)))
-            (eboy-set-flag flags :C (< eboy-r-A n))
+            (eboy-set-flag flags :H (> (logand (- eboy-rA n) #x0F) (logand eboy-rA #x0F)))
+            (eboy-set-flag flags :C (< eboy-rA n))
             (eboy-inc-pc 1)
             )) ;; 8
 
@@ -687,12 +840,10 @@ Return the binary data as unibyte string."
     (#x3C (eboy-log (format " INC A ")) (assert nil t "unimplemented opcode")) ;; 4
     (#x04 (eboy-log (format " INC B ")) (assert nil t "unimplemented opcode")) ;; 4
     (#x0C (eboy-log (format " INC C "))
-          (eboy-add-byte eboy-r-C 1)
-          (if (= (logand eboy-r-C #xff) 0)
-              (progn (eboy-set-flag flags :Z t)
-                     (setq eboy-r-C 0)))
+          (eboy-add-byte eboy-rC 1)
+          (eboy-set-flag flags :Z (zerop eboy-rC))
           (eboy-set-flag flags :N nil)
-          (eboy-set-flag flags :H (< (logand eboy-r-C #xf) (logand (1- eboy-r-C) #xf)))
+          (eboy-set-flag flags :H (< (logand eboy-rC #xf) (logand (1- eboy-rC) #xf)))
           ) ;; 4
     (#x14 (eboy-log (format " INC D ")) (assert nil t "unimplemented opcode")) ;; 4
     (#x1C (eboy-log (format " INC E ")) (assert nil t "unimplemented opcode")) ;; 4
@@ -708,17 +859,13 @@ Return the binary data as unibyte string."
     ;; C - Not affected.
     (#x3D (eboy-log (format " DEC A ")) (assert nil t "unimplemented opcode")) ;; 4
     (#x05 (eboy-log (format " DEC B "))
-          ;; (eboy-add-byte eboy-r-B -1)
-          ;; (eboy-set-flag flags :Z (= eboy-r-B 0))
-          ;; (eboy-set-flag flags :N t)
-          ;; (eboy-set-flag flags :H (= (logand eboy-r-B #xF) #xF))
-          (eboy-dec eboy-r-B flags)
+          (eboy-dec eboy-rB flags)
           ) ;; 4
-    (#x0D (eboy-log (format " DEC C ")) (eboy-dec eboy-r-C flags)) ;; 4
-    (#x15 (eboy-log (format " DEC D ")) (eboy-dec eboy-r-D flags)) ;; 4
-    (#x1D (eboy-log (format " DEC E ")) (eboy-dec eboy-r-E flags)) ;; 4
-    (#x25 (eboy-log (format " DEC H ")) (eboy-dec eboy-r-H flags)) ;; 4
-    (#x2D (eboy-log (format " DEC L ")) (eboy-dec eboy-r-L flags)) ;; 4
+    (#x0D (eboy-log (format " DEC C ")) (eboy-dec eboy-rC flags)) ;; 4
+    (#x15 (eboy-log (format " DEC D ")) (eboy-dec eboy-rD flags)) ;; 4
+    (#x1D (eboy-log (format " DEC E ")) (eboy-dec eboy-rE flags)) ;; 4
+    (#x25 (eboy-log (format " DEC H ")) (eboy-dec eboy-rH flags)) ;; 4
+    (#x2D (eboy-log (format " DEC L ")) (eboy-dec eboy-rL flags)) ;; 4
     (#x35 (eboy-log (format " DEC (HL)  ")) (assert nil t "unimplemented opcode"));; 12
 
       ;;; 16-Bit Arithmetic
@@ -730,7 +877,13 @@ Return the binary data as unibyte string."
     ;; H - Set if carry from bit 11.
     ;; C - Set if carry from bit 15.
     (#x09 (eboy-log (format " ADD HL,BC ")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x19 (eboy-log (format " ADD HL,DE ")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x19 (eboy-log (format " ADD HL,DE "))
+          (let ((hl (eboy-get-rHL)))
+            (eboy-set-rHL (+ hl (eboy-get-rDE)))
+            (eboy-set-flag flags :N nil)
+            (eboy-set-flag flags :H (< (logand (eboy-get-rHL) #xfff) (logand hl #xfff)))
+            (eboy-set-flag flags :C (< (logand (eboy-get-rHL) #xffff) (logand hl #xffff))))
+          ) ;; 8
     (#x29 (eboy-log (format " ADD HL,HL ")) (assert nil t "unimplemented opcode")) ;; 8
     (#x39 (eboy-log (format " ADD HL,SP ")) (assert nil t "unimplemented opcode")) ;; 8
 
@@ -744,16 +897,19 @@ Return the binary data as unibyte string."
     (#xE8 (eboy-log (format " ADD SP,#  ")) (assert nil t "unimplemented opcode"));; 16
 
     ;; INC nn - Increment register nn.
-    ;; Flags affected:
+    ;; Flags affected: None
     (#x03 (eboy-log (format " INC BC ")) (assert nil t "unimplemented opcode")) ;; 8
     (#x13 (eboy-log (format " INC DE ")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x23 (eboy-log (format " INC HL ")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x23 (eboy-log (format " INC HL "))
+          (eboy-set-rHL (1+ (eboy-get-rHL)))
+          ) ;; 8
     (#x33 (eboy-log (format " INC SP ")) (assert nil t "unimplemented opcode")) ;; 8
 
     ;; DEC nn - Decrement register nn.
     ;; Flags affected:
     ;; None.
-    (#x0B (eboy-log (format " DEC BC ")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x0B (eboy-log (format " DEC BC "))
+          (eboy-set-rBC (1- (eboy-get-rBC)))) ;; 8
     (#x1B (eboy-log (format " DEC DE ")) (assert nil t "unimplemented opcode")) ;; 8
     (#x2B (eboy-log (format " DEC HL ")) (assert nil t "unimplemented opcode")) ;; 8
     (#x3B (eboy-log (format " DEC SP ")) (assert nil t "unimplemented opcode")) ;; 8
@@ -777,7 +933,11 @@ Return the binary data as unibyte string."
     ;; N - Set.
     ;; H - Set.
     ;; C - Not affected.
-    (#x2F (eboy-log (format " CPL -/- ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x2F (eboy-log (format " CPL -/- "))
+          (setq eboy-rA (lognot eboy-rA))
+          (eboy-set-flag flags :N t)
+          (eboy-set-flag flags :H t)
+          ) ;; 4
 
     ;; CCF - Complement carry flag.
     ;; If C flag is set, then reset it.
@@ -838,10 +998,10 @@ Return the binary data as unibyte string."
     ;; H - Reset.
     ;; C - Contains old bit 0 data.
     (#x0F (eboy-log (format " RRCA -/- "))
-          (insert (format " %s " (logand eboy-r-A #x01)) )
-          (eboy-set-flag flags :C (= (logand eboy-r-A #x01) 1))
-          (setq eboy-r-A (logand (logior (lsh eboy-r-A 1) (lsh eboy-r-A -7)) #xff))
-          (eboy-set-flag flags :Z (= eboy-r-A 0))
+          (insert (format " %s " (logand eboy-rA #x01)) )
+          (eboy-set-flag flags :C (= (logand eboy-rA #x01) 1))
+          (setq eboy-rA (logand (logior (lsh eboy-rA 1) (lsh eboy-rA -7)) #xff))
+          (eboy-set-flag flags :Z (= eboy-rA 0))
           ) ;; 4
 
     ;; RRA - Rotate A right through Carry flag.
@@ -852,8 +1012,8 @@ Return the binary data as unibyte string."
     ;; C - Contains old bit 0 data.
     (#x1F (eboy-log (format " RRA -/- ")) (assert nil t "unimplemented opcode")) ;; 4
 
-
-    (#xCB (eboy-log (format " 2byte opcode CB: " ) (assert nil t "unimplemented opcode"))
+    ;; Extended instructions
+    (#xCB (eboy-log (format " 2byte opcode CB: 0x%02x" (eboy-get-byte)))
           (let ((bc-opcode (eboy-get-byte)))
             (eboy-inc-pc 1)
             (cl-case bc-opcode
@@ -863,14 +1023,20 @@ Return the binary data as unibyte string."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Reset.
-              (#x37 (eboy-log (format " SWAP A"))) ;; 8
-              (#x30 (eboy-log (format " SWAP B"))) ;; 8
-              (#x31 (eboy-log (format " SWAP C"))) ;; 8
-              (#x32 (eboy-log (format " SWAP D"))) ;; 8
-              (#x33 (eboy-log (format " SWAP E"))) ;; 8
-              (#x34 (eboy-log (format " SWAP H"))) ;; 8
-              (#x35 (eboy-log (format " SWAP L"))) ;; 8
-              (#x36 (eboy-log (format " SWAP (HL) ")));; 16
+              (#x37 (eboy-log (format " SWAP A"))
+                    (setq eboy-rA (logand (logior (lsh eboy-rA 4) (lsh eboy-rA -4)) #xFF))
+                    (eboy-set-flag flags :Z (zerop eboy-rA))
+                    (eboy-set-flag flags :N nil)
+                    (eboy-set-flag flags :H nil)
+                    (eboy-set-flag flags :C nil)
+                    ) ;; 8
+              (#x30 (eboy-log (format " SWAP B")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x31 (eboy-log (format " SWAP C")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x32 (eboy-log (format " SWAP D")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x33 (eboy-log (format " SWAP E")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x34 (eboy-log (format " SWAP H")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x35 (eboy-log (format " SWAP L")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x36 (eboy-log (format " SWAP (HL) ")) (assert nil t "unimplemented opcode"));; 16
 
               ;; RLC n - Rotate n left. Old bit 7 to Carry flag.
               ;; Flags affected:
@@ -878,14 +1044,14 @@ Return the binary data as unibyte string."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 7 data.
-              (#x07 (eboy-log (format " RLC A"))) ;; 8
-              (#x00 (eboy-log (format " RLC B"))) ;; 8
-              (#x01 (eboy-log (format " RLC C"))) ;; 8
-              (#x02 (eboy-log (format " RLC D"))) ;; 8
-              (#x03 (eboy-log (format " RLC E"))) ;; 8
-              (#x04 (eboy-log (format " RLC H"))) ;; 8
-              (#x05 (eboy-log (format " RLC L"))) ;; 8
-              (#x06 (eboy-log (format " RLC (HL) ")));; 16
+              (#x07 (eboy-log (format " RLC A")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x00 (eboy-log (format " RLC B")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x01 (eboy-log (format " RLC C")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x02 (eboy-log (format " RLC D")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x03 (eboy-log (format " RLC E")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x04 (eboy-log (format " RLC H")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x05 (eboy-log (format " RLC L")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x06 (eboy-log (format " RLC (HL) ")) (assert nil t "unimplemented opcode"));; 16
 
               ;; RL n - Rotate n left through Carry flag.
               ;; Flags affected:
@@ -893,14 +1059,14 @@ Return the binary data as unibyte string."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 7 data.
-              (#x17 (eboy-log (format " RL A"))) ;; 8
-              (#x10 (eboy-log (format " RL B"))) ;; 8
-              (#x11 (eboy-log (format " RL C"))) ;; 8
-              (#x12 (eboy-log (format " RL D"))) ;; 8
-              (#x13 (eboy-log (format " RL E"))) ;; 8
-              (#x14 (eboy-log (format " RL H"))) ;; 8
-              (#x15 (eboy-log (format " RL L"))) ;; 8
-              (#x16 (eboy-log (format " RL (HL) ")));; 16
+              (#x17 (eboy-log (format " RL A")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x10 (eboy-log (format " RL B")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x11 (eboy-log (format " RL C")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x12 (eboy-log (format " RL D")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x13 (eboy-log (format " RL E")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x14 (eboy-log (format " RL H")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x15 (eboy-log (format " RL L")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x16 (eboy-log (format " RL (HL) ")) (assert nil t "unimplemented opcode"));; 16
 
               ;; RRC n -  Rotate n right. Old bit 0 to Carry flag.
               ;; Flags affected:
@@ -908,14 +1074,14 @@ Return the binary data as unibyte string."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 0 data.
-              (#x0F (eboy-log (format " RRC A"))) ;; 8
-              (#x08 (eboy-log (format " RRC B"))) ;; 8
-              (#x09 (eboy-log (format " RRC C"))) ;; 8
-              (#x0A (eboy-log (format " RRC D"))) ;; 8
-              (#x0B (eboy-log (format " RRC E"))) ;; 8
-              (#x0C (eboy-log (format " RRC H"))) ;; 8
-              (#x0D (eboy-log (format " RRC L"))) ;; 8
-              (#x0E (eboy-log (format " RRC (HL) ")));; 16
+              (#x0F (eboy-log (format " RRC A")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x08 (eboy-log (format " RRC B")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x09 (eboy-log (format " RRC C")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x0A (eboy-log (format " RRC D")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x0B (eboy-log (format " RRC E")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x0C (eboy-log (format " RRC H")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x0D (eboy-log (format " RRC L")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x0E (eboy-log (format " RRC (HL) ")) (assert nil t "unimplemented opcode"));; 16
 
               ;; RR n - Rotate n right through Carry flag.
               ;; Flags affected:
@@ -923,14 +1089,14 @@ Return the binary data as unibyte string."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 0 data.
-              (#x1F (eboy-log (format " RR A"))) ;; 8
-              (#x18 (eboy-log (format " RR B"))) ;; 8
-              (#x19 (eboy-log (format " RR C"))) ;; 8
-              (#x1A (eboy-log (format " RR D"))) ;; 8
-              (#x1B (eboy-log (format " RR E"))) ;; 8
-              (#x1C (eboy-log (format " RR H"))) ;; 8
-              (#x1D (eboy-log (format " RR L"))) ;; 8
-              (#x1E (eboy-log (format " RR (HL) ")));; 16
+              (#x1F (eboy-log (format " RR A")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x18 (eboy-log (format " RR B")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x19 (eboy-log (format " RR C")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x1A (eboy-log (format " RR D")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x1B (eboy-log (format " RR E")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x1C (eboy-log (format " RR H")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x1D (eboy-log (format " RR L")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x1E (eboy-log (format " RR (HL) ")) (assert nil t "unimplemented opcode"));; 16
 
               ;; SLA n - Shift n left into Carry. LSB of n set to 0.
               ;; Flags affected:
@@ -938,14 +1104,14 @@ Return the binary data as unibyte string."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 7 data.
-              (#x27 (eboy-log (format " SLA A"))) ;; 8
-              (#x20 (eboy-log (format " SLA B"))) ;; 8
-              (#x21 (eboy-log (format " SLA C"))) ;; 8
-              (#x22 (eboy-log (format " SLA D"))) ;; 8
-              (#x23 (eboy-log (format " SLA E"))) ;; 8
-              (#x24 (eboy-log (format " SLA H"))) ;; 8
-              (#x25 (eboy-log (format " SLA L"))) ;; 8
-              (#x26 (eboy-log (format " SLA (HL) ")));; 16
+              (#x27 (eboy-log (format " SLA A")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x20 (eboy-log (format " SLA B")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x21 (eboy-log (format " SLA C")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x22 (eboy-log (format " SLA D")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x23 (eboy-log (format " SLA E")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x24 (eboy-log (format " SLA H")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x25 (eboy-log (format " SLA L")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x26 (eboy-log (format " SLA (HL) ")) (assert nil t "unimplemented opcode"));; 16
 
               ;; SRA n - Shift n right into Carry. MSB doesn't change.
               ;; Flags affected:
@@ -953,14 +1119,14 @@ Return the binary data as unibyte string."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 0 data.
-              (#x2F (eboy-log (format " SRA A"))) ;; 8
-              (#x28 (eboy-log (format " SRA B"))) ;; 8
-              (#x29 (eboy-log (format " SRA C"))) ;; 8
-              (#x2A (eboy-log (format " SRA D"))) ;; 8
-              (#x2B (eboy-log (format " SRA E"))) ;; 8
-              (#x2C (eboy-log (format " SRA H"))) ;; 8
-              (#x2D (eboy-log (format " SRA L"))) ;; 8
-              (#x2E (eboy-log (format " SRA (HL) ")));; 16
+              (#x2F (eboy-log (format " SRA A")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x28 (eboy-log (format " SRA B")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x29 (eboy-log (format " SRA C")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x2A (eboy-log (format " SRA D")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x2B (eboy-log (format " SRA E")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x2C (eboy-log (format " SRA H")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x2D (eboy-log (format " SRA L")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x2E (eboy-log (format " SRA (HL) ")) (assert nil t "unimplemented opcode"));; 16
 
               ;; SRL n - Shift n right into Carry. MSB set to 0.
               ;; Flags affected:
@@ -968,14 +1134,14 @@ Return the binary data as unibyte string."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 0 data.
-              (#x3F (eboy-log (format " SRL A"))) ;; 8
-              (#x38 (eboy-log (format " SRL B"))) ;; 8
-              (#x39 (eboy-log (format " SRL C"))) ;; 8
-              (#x3A (eboy-log (format " SRL D"))) ;; 8
-              (#x3B (eboy-log (format " SRL E"))) ;; 8
-              (#x3C (eboy-log (format " SRL H"))) ;; 8
-              (#x3D (eboy-log (format " SRL L"))) ;; 8
-              (#x3E (eboy-log (format " SRL (HL) ")));; 16
+              (#x3F (eboy-log (format " SRL A")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x38 (eboy-log (format " SRL B")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x39 (eboy-log (format " SRL C")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x3A (eboy-log (format " SRL D")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x3B (eboy-log (format " SRL E")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x3C (eboy-log (format " SRL H")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x3D (eboy-log (format " SRL L")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x3E (eboy-log (format " SRL (HL) ")) (assert nil t "unimplemented opcode"));; 16
 
               ;; Bit Opcodes - Test bit b in register r.
               ;; Flags affected:
@@ -983,38 +1149,38 @@ Return the binary data as unibyte string."
               ;; N - Reset.
               ;; H - Set.
               ;; C - Not affected.
-              (#x47 (eboy-log (format " BIT b,A"))) ;; 8
-              (#x40 (eboy-log (format " BIT b,B"))) ;; 8
-              (#x41 (eboy-log (format " BIT b,C"))) ;; 8
-              (#x42 (eboy-log (format " BIT b,D"))) ;; 8
-              (#x43 (eboy-log (format " BIT b,E"))) ;; 8
-              (#x44 (eboy-log (format " BIT b,H"))) ;; 8
-              (#x45 (eboy-log (format " BIT b,L"))) ;; 8
-              (#x46 (eboy-log (format " BIT b,(HL) ")));; 16
+              (#x47 (eboy-log (format " BIT b,A")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x40 (eboy-log (format " BIT b,B")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x41 (eboy-log (format " BIT b,C")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x42 (eboy-log (format " BIT b,D")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x43 (eboy-log (format " BIT b,E")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x44 (eboy-log (format " BIT b,H")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x45 (eboy-log (format " BIT b,L")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x46 (eboy-log (format " BIT b,(HL) ")) (assert nil t "unimplemented opcode"));; 16
 
               ;; SET b,r - Set bit b in register r.
               ;; Flags affected:
               ;; None.
-              (#xC7 (eboy-log (format " SET b,A"))) ;; 8
-              (#xC0 (eboy-log (format " SET b,B"))) ;; 8
-              (#xC1 (eboy-log (format " SET b,C"))) ;; 8
-              (#xC2 (eboy-log (format " SET b,D"))) ;; 8
-              (#xC3 (eboy-log (format " SET b,E"))) ;; 8
-              (#xC4 (eboy-log (format " SET b,H"))) ;; 8
-              (#xC5 (eboy-log (format " SET b,L"))) ;; 8
-              (#xC6 (eboy-log (format " SET b,(HL) ")));; 16
+              (#xC7 (eboy-log (format " SET b,A")) (assert nil t "unimplemented opcode")) ;; 8
+              (#xC0 (eboy-log (format " SET b,B")) (assert nil t "unimplemented opcode")) ;; 8
+              (#xC1 (eboy-log (format " SET b,C")) (assert nil t "unimplemented opcode")) ;; 8
+              (#xC2 (eboy-log (format " SET b,D")) (assert nil t "unimplemented opcode")) ;; 8
+              (#xC3 (eboy-log (format " SET b,E")) (assert nil t "unimplemented opcode")) ;; 8
+              (#xC4 (eboy-log (format " SET b,H")) (assert nil t "unimplemented opcode")) ;; 8
+              (#xC5 (eboy-log (format " SET b,L")) (assert nil t "unimplemented opcode")) ;; 8
+              (#xC6 (eboy-log (format " SET b,(HL) ")) (assert nil t "unimplemented opcode"));; 16
 
               ;; RES b,r - Reset bit b in register r.
               ;; Flags affected:
               ;; None.
-              (#x87 (eboy-log (format " RES b,A"))) ;; 8
-              (#x80 (eboy-log (format " RES b,B"))) ;; 8
-              (#x81 (eboy-log (format " RES b,C"))) ;; 8
-              (#x82 (eboy-log (format " RES b,D"))) ;; 8
-              (#x83 (eboy-log (format " RES b,E"))) ;; 8
-              (#x84 (eboy-log (format " RES b,H"))) ;; 8
-              (#x85 (eboy-log (format " RES b,L"))) ;; 8
-              (#x86 (eboy-log (format " RES b,(HL) ")));; 16
+              (#x87 (eboy-log (format " RES b,A")) (setq eboy-rA (logand eboy-rA #xFE)) ) ;; 8
+              (#x80 (eboy-log (format " RES b,B")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x81 (eboy-log (format " RES b,C")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x82 (eboy-log (format " RES b,D")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x83 (eboy-log (format " RES b,E")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x84 (eboy-log (format " RES b,H")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x85 (eboy-log (format " RES b,L")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x86 (eboy-log (format " RES b,(HL) ")) (assert nil t "unimplemented opcode"));; 16
               (otherwise (eboy-log (format "Unimplemented BC opcode 0x%x" opcode)))
               )))
 
@@ -1037,7 +1203,8 @@ Return the binary data as unibyte string."
     (#xDA (eboy-log (format " JP C,nn  ")) (assert nil t "unimplemented opcode"));; 12
 
     ;; JP (HL) - Jump to address contained in HL.
-    (#xE9 (eboy-log (format " JP (HL) ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#xE9 (eboy-log (format " JP (HL) "))
+          (setq eboy-pc (1- (eboy-get-rHL)))) ;; 4
 
     ;; JR n - Add n to current address and jump to it.
     ;; nn = one byte signed immediate value
@@ -1062,7 +1229,11 @@ Return the binary data as unibyte string."
 
     ;; CALL nn - Push address of next instruction onto stack and then jump to address nn.
     ;;  nn = two byte immediate value. (LS byte first.)
-    (#xCD (eboy-log (format " CALL nn  ")) (assert nil t "unimplemented opcode"));; 12
+    (#xCD (eboy-log (format " CALL 0x%0004x " (eboy-get-short)))
+          (decf eboy-sp 2)
+          (eboy-mem-write-short eboy-sp (+ eboy-pc 3))
+          (setq eboy-pc (1- (eboy-get-short))) ;; decrement one, since it will be incremented next.
+          );; 12
 
     ;; CALL cc,nn - Call address n if following condition is true:
     ;;  cc = NZ, Call if Z flag is reset.
@@ -1085,14 +1256,21 @@ Return the binary data as unibyte string."
     (#xD7 (eboy-log (format " RST 10H  ")) (assert nil t "unimplemented opcode"));; 32
     (#xDF (eboy-log (format " RST 18H  ")) (assert nil t "unimplemented opcode"));; 32
     (#xE7 (eboy-log (format " RST 20H  ")) (assert nil t "unimplemented opcode"));; 32
-    (#xEF (eboy-log (format " RST 28H  ")) (assert nil t "unimplemented opcode"));; 32
+    (#xEF (eboy-log (format " RST 28H  "))
+          (decf eboy-sp 2)
+          (eboy-mem-write-short eboy-sp (+ eboy-pc 1))
+          (setq eboy-pc (1- #x28)) ;; Decrement one since it will be incremented next.
+          );; 32
     (#xF7 (eboy-log (format " RST 30H  ")) (assert nil t "unimplemented opcode"));; 32
     (#xFF (eboy-log (format " RST 38H  ")) (assert nil t "unimplemented opcode"));; 32
 
       ;;; Returns
 
     ;; RET - Pop two bytes from stack & jump to that address.
-    (#xC9 (eboy-log (format " RET -/- ")) (assert nil t "unimplemented opcode")) ;; 8
+    (#xC9 (eboy-log (format " RET -/- (%0004x)" (eboy-mem-read-short eboy-sp)))
+          (setq eboy-pc (1- (eboy-mem-read-short eboy-sp))) ;; decrement one, since it will be incremented next.
+          (incf eboy-sp 2)
+          ) ;; 8
 
     ;; RET cc - Return if following condition is true:
     ;;  cc = NZ, Return if Z flag is reset.
@@ -1125,7 +1303,7 @@ Return the binary data as unibyte string."
   (eboy-inc-pc 1)
   (if (= eboy-pc #x235)
       (progn (message "indicate the V-Blank moment")
-             (eboy-write-byte-to-memory #xFF44 #x94)))
+             (eboy-mem-write-byte #xFF44 #x94)))
   )
 
 (defun eboy-load-rom ()
@@ -1161,6 +1339,7 @@ Return the binary data as unibyte string."
       (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
       )
     )
+  (message "we finished?")
   )
 
 (eboy-load-rom)
