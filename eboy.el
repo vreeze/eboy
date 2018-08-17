@@ -15,12 +15,23 @@ Return the binary data as unibyte string."
 
 (defconst eboy-pc-start-address #x100 "The start address of the program counter.")
 (defconst eboy-sp-initial-value #xFFFE "Initial value of the stack pointer.")
+
+;; Interrupt masks
+(defconst eboy-im-vblank #x01 "The interrupt mask for V-Blank.")
+(defconst eboy-im-lcdc #x02 "The interrupt mask for LCDC.")
+(defconst eboy-im-tmr-overflow #x04 "The interrupt mask for Timer Overflow.")
+(defconst eboy-im-s-trans-compl #x08 "The interrupt mask for Serial I/O transfer complete.")
+(defconst eboy-im-h2l-pins #x10 "The interrupt mask for transition from h to l of pin P10-P13.")
+
 (defvar eboy-rom-filename nil "The file name of the loaded rom.")
 (defvar eboy-rom nil "The binary vector of the rom.")
 (defvar eboy-rom-size nil "The size of the rom in bytes.")
 (defvar eboy-pc nil "The program counter.")
 (defvar eboy-sp nil "The stack pointer.")
-(defvar eboy-interrupt-enabled nil "Interupts enabled flag.")
+(defvar eboy-interrupt-master-enbl nil "Interupts enabled flag.")
+(defvar eboy-interrupt-pending #x00 "Flags of pending interrupts.")
+(defvar eboy-interrupt-enabled #x00 "Flags of enabled interrupts.")
+
 
 ;;(defvar eboy-flags (make-bool-vector 4 t) "The flags Z(Zero) S(Negative) H(Halve Carry) and C(Carry).")
 (defvar eboy-debug-nr-instructions nil "Number of instructions executed.")
@@ -187,7 +198,7 @@ Return the binary data as unibyte string."
 ;; 8kB Video RAM
 ;; --------------------------- 8000 --
 ;; 16kB switchable ROM bank         |
-;; --------------------------- 4000  |= 32kB Cartrigbe
+;; --------------------------- 4000  |= 32kB Cartridge
 ;; 16kB ROM bank #0                 |
 ;; --------------------------- 0000 --
 ;; * NOTE: b = bit, B = byte
@@ -197,8 +208,11 @@ Return the binary data as unibyte string."
   (cond
    ((and (>= address #xFF80) (<= address #xFFFF))
     ;;(message "Internal RAM")
-    (if (= address #xFFFF) (eboy-msg "Read IE: Interrupt Enable.") )
-    (aref eboy-ram (- address #xE000))
+    (if (= address #xFFFF)
+        (progn (eboy-msg "Read IE: Interrupt Enable.")
+               eboy-interrupt-enabled)
+      (aref eboy-ram (- address #xE000))
+      )
     )
    ((and (>= address #xFF4C) (< address #xFF80))
     ;;(message "Empty but unusable for I/O")
@@ -221,8 +235,10 @@ Return the binary data as unibyte string."
      ((= address #xFF41) (eboy-msg "Read STAT: LCDC Status.") )
      ((= address #xFF40) (eboy-msg "Read LCDC: LCD Control.") )
      ;; in between sound registers, but not consecutive, some unknow address.
-     ((= address #xFF0F) (eboy-msg "Read IF: Interrupt Flag.") )
-     ((= address #xFF0F) (eboy-msg "Read IF: Interrupt Flag.") )
+     ((= address #xFF0F)
+      (eboy-msg "Read IF: Interrupt Flag.")
+      (aset eboy-ram (- address #xE000) eboy-interrupt-pending)
+      )
      ((= address #xFF07) (eboy-msg "Read TAC: Timer Control.") )
      ((= address #xFF06) (eboy-msg "Read TMA: Timer Modulo.") )
      ((= address #xFF05) (eboy-msg "Read TIMA: Timer Counter.") )
@@ -271,11 +287,19 @@ Return the binary data as unibyte string."
   "Write DATA byte to memory at ADDRESS."
   (setq data (logand data #xff))
   (cond
-   ;; Iterrupt Enable Register??
-
    ((and (>= address #xFF80) (<= address #xFFFF))
-    ;; (message "Write Internal RAM")
-    (aset eboy-ram (- address #xE000) data))
+    (if (= address #xFFFF)
+        (progn (eboy-msg (format "Write IE: Interrupt Enable. #%02x" data))
+               (if (= 1 (logand data eboy-im-vblank)) (eboy-msg "ie V-Blank"))
+               (if (= 1 (logand data eboy-im-lcdc)) (eboy-msg "ie LCDC"))
+               (if (= 1 (logand data eboy-im-tmr-overflow)) (eboy-msg "ie Timer Overflow"))
+               (if (= 1 (logand data eboy-im-s-trans-compl)) (eboy-msg "ie Serial I/O transfer complete"))
+               (if (= 1 (logand data eboy-im-h2l-pins)) (eboy-msg "ie transition from h to l of pin P10-P13"))
+               (setq eboy-interrupt-enabled data)
+               )
+      ;; (message "Write Internal RAM")
+      (aset eboy-ram (- address #xE000) data))
+      )
    ((and (>= address #xFF4C) (< address #xFF80))
     ;; (message "Write Empty but unusable for I/O")
     (aset eboy-ram (- address #xE000) data))
@@ -296,8 +320,14 @@ Return the binary data as unibyte string."
      ((= address #xFF41) (eboy-msg "Write STAT: LCDC Status.") )
      ((= address #xFF40) (eboy-msg "Write LCDC: LCD Control.") )
      ;; in between sound registers, but not consecutive, some unknow address.
-     ((= address #xFF0F) (eboy-msg "Write IF: Interrupt Flag.") )
-     ((= address #xFF0F) (eboy-msg "Write IF: Interrupt Flag.") )
+     ((= address #xFF0F) (progn (eboy-msg (format "Write IF: Interrupt Flag. #%02x" data))
+                                (if (= 1 (logand data eboy-im-vblank)) (eboy-msg "if V-Blank"))
+                                (if (= 1 (logand data eboy-im-lcdc)) (eboy-msg "if LCDC"))
+                                (if (= 1 (logand data eboy-im-tmr-overflow)) (eboy-msg "if Timer Overflow"))
+                                (if (= 1 (logand data eboy-im-s-trans-compl)) (eboy-msg "if Serial I/O transfer complete"))
+                                (if (= 1 (logand data eboy-im-h2l-pins)) (eboy-msg "if transition from h to l of pin P10-P13"))
+                                (setq eboy-interrupt-pending data)
+                                ) )
      ((= address #xFF07) (eboy-msg "Write TAC: Timer Control.") )
      ((= address #xFF06) (eboy-msg "Write TMA: Timer Modulo.") )
      ((= address #xFF05) (eboy-msg "Write TIMA: Timer Counter.") )
@@ -967,11 +997,11 @@ Little Endian."
     ;; DI - This instruction disables interrupts but not immediately. Interrupts are disabled after instruction after DI is executed.
     ;; Flags affected:
     ;; None.
-    (#xF3 (eboy-log (format " DI -/- ")) (setq eboy-interrupt-enabled nil)) ;; 4
+    (#xF3 (eboy-log (format " DI -/- ")) (setq eboy-interrupt-master-enbl nil)) ;; 4
     ;; EI - Enable interrupts. This intruction enables interrupts but not immediately. Interrupts are enabled after instruction after EI is executed.
     ;; Flags affected:
     ;; None.
-    (#xFB (eboy-log (format " EI -/- ")) (setq eboy-interrupt-enabled t)) ;; 4
+    (#xFB (eboy-log (format " EI -/- ")) (setq eboy-interrupt-master-enbl t)) ;; 4
 
       ;;; Rotates & Shift
 
@@ -1304,6 +1334,53 @@ Little Endian."
   (if (= eboy-pc #x235)
       (progn (message "indicate the V-Blank moment")
              (eboy-mem-write-byte #xFF44 #x94)))
+  (if (= eboy-pc #x282c)
+      (progn (message "Set LCDC Y coordinate to V-Blank range 0x90-0x99")
+             (eboy-mem-write-byte #xFF44 #x91)))
+  )
+
+(message (format "%x" (logand #xFF (lognot eboy-im-vblank))))
+(defun eboy-disable-interrupt (interrupt-mask)
+  "Remove the interrupt flag for INTERRUPT-MASK."
+  (setq eboy-interrupt-pending (logand eboy-interrupt-pending (lognot interrupt-mask)))
+  )
+
+(defun eboy-process-interrupt (address)
+  "Disable interrupts, put PC on stack and set PC to ADDRESS."
+  (setq eboy-interrupt-master-enbl nil)
+  (decf eboy-sp 2)
+  (eboy-mem-write-short eboy-sp eboy-pc)
+  (setq eboy-pc address)
+  )
+
+(defun eboy-process-interrupts ()
+  "Process pending interrupts."
+  (let ((enbl-intr (logand eboy-interrupt-enabled  eboy-interrupt-pending)))
+    (if (and eboy-interrupt-master-enbl (> enbl-intr #x00))
+        (progn (eboy-msg "handle enbl interrupt")
+               (cond
+                ((= 1 (logand enbl-intr eboy-im-vblank))
+                 (eboy-msg " V-Blank")
+                 (eboy-disable-interrupt eboy-im-vblank)
+                 (eboy-process-interrupt #x40))
+                ((= 1 (logand enbl-intr eboy-im-lcdc))
+                 (eboy-msg " LCDC")
+                 (eboy-disable-interrupt eboy-im-lcdc)
+                 (eboy-process-interrupt #x48))
+                ((= 1 (logand enbl-intr eboy-im-tmr-overflow))
+                 (eboy-msg " Timer Overflow")
+                 (eboy-disable-interrupt eboy-im-tmr-overflow)
+                 (eboy-process-interrupt #x50))
+                ((= 1 (logand enbl-intr eboy-im-s-trans-compl))
+                 (eboy-msg " Serial I/O transfer complete")
+                 (eboy-disable-interrupt eboy-im-s-trans-compl)
+                 (eboy-process-interrupt #x58))
+                ((= 1 (logand enbl-intr eboy-im-h2l-pins))
+                 (eboy-msg " transition from h to l of pin P10-P13")
+                 (eboy-disable-interrupt eboy-im-h2l-pins)
+                 (eboy-process-interrupt #x60))
+                )))
+    )
   )
 
 (defun eboy-load-rom ()
@@ -1333,7 +1410,8 @@ Little Endian."
     (eboy-set-flag flags :H t)
     (eboy-set-flag flags :C t)
 
-    (while (and (< eboy-pc eboy-rom-size) (< eboy-debug-nr-instructions 100000))
+    (while (and (< eboy-pc eboy-rom-size) (< eboy-debug-nr-instructions 150000))
+      (eboy-process-interrupts)
       (if eboy-debug-1 (insert (format "%2d: " eboy-debug-nr-instructions)))
       (eboy-process-opcode (aref eboy-rom eboy-pc) flags)
       (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
