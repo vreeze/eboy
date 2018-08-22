@@ -24,11 +24,13 @@ Return the binary data as unibyte string."
 (defconst eboy-im-h2l-pins #x10 "The interrupt mask for transition from h to l of pin P10-P13.")
 
 (defvar eboy-rom-filename nil "The file name of the loaded rom.")
+(defvar eboy-boot-rom-filename nil "The path to the boot rom.")
+(defvar eboy-boot-rom nil "The binary vector of the boot rom.")
 (defvar eboy-rom nil "The binary vector of the rom.")
 (defvar eboy-rom-size nil "The size of the rom in bytes.")
 (defvar eboy-pc nil "The program counter.")
 (defvar eboy-sp nil "The stack pointer.")
-(defvar eboy-interrupt-master-enbl nil "Interupts enabled flag.")
+(defvar eboy-interrupt-master-enbl nil "Interupts master enabled flag.")
 (defvar eboy-interrupt-pending #x00 "Flags of pending interrupts.")
 (defvar eboy-interrupt-enabled #x00 "Flags of enabled interrupts.")
 
@@ -186,6 +188,7 @@ Return the binary data as unibyte string."
 (defvar eboy-ram (make-vector (* 8 1024) 0) "The 8 kB interal RAM.")
 (defvar eboy-hram (make-vector 128 0) "The 128 bytes high RAM.")
 (defvar eboy-vram (make-vector (* 8 1024) 0) "The 8 kB interal Video RAM.")
+(defvar eboy-io (make-vector #x4C 0) "The 8 IO registers.")
 
 ;;; Memory:
 ;; Iterrupt Enable Register
@@ -231,34 +234,40 @@ Return the binary data as unibyte string."
     )
    ((and (>= address #xFF00) (< address #xFF4C))
     ;;(message "I/O ports")
-    (cond
-     ((= address #xFF4B) (eboy-msg "Read WX: Window X position.") )
-     ((= address #xFF4B) (eboy-msg "Read WX: Window X position.") )
-     ((= address #xFF4A) (eboy-msg "Read WY: Window Y position.") )
-     ((= address #xFF49) (eboy-msg "Read OBP1: Object Palette 1 Data.") )
-     ((= address #xFF48) (eboy-msg "Read OBPO: Object Palette 0 Data.") )
-     ((= address #xFF47) (eboy-msg "Read BGP: BG & Window Palette DATA.") )
-     ;;((= address #xFF46) (eboy-msg "Read DMA: DMA Transfer and Start Address.") )
-     ((= address #xFF45) (eboy-msg "Read LYC: LY Compare.") )
-     ((= address #xFF44) (eboy-msg "Read LY: LCDC Y Coordinate.") )
-     ((= address #xFF43) (eboy-msg "Read SCX: Scroll X.") )
-     ((= address #xFF42) (eboy-msg "Read SCY: Scroll Y.") )
-     ((= address #xFF41) (eboy-msg "Read STAT: LCDC Status.") )
-     ((= address #xFF40) (eboy-msg "Read LCDC: LCD Control.") )
-     ;; in between sound registers, but not consecutive, some unknow address.
-     ((= address #xFF0F)
-      (eboy-msg "Read IF: Interrupt Flag.")
-      (aset eboy-ram (- address #xE000) eboy-interrupt-pending)
+    (let ((data (aref eboy-io (- address #xFF00))))
+      (cond
+       ((= address #xFF4B) (eboy-msg "Read WX: Window X position.") )
+       ((= address #xFF4B) (eboy-msg "Read WX: Window X position.") )
+       ((= address #xFF4A) (eboy-msg "Read WY: Window Y position.") )
+       ((= address #xFF49) (eboy-msg "Read OBP1: Object Palette 1 Data.") )
+       ((= address #xFF48) (eboy-msg "Read OBPO: Object Palette 0 Data.") )
+       ((= address #xFF47) (eboy-msg "Read BGP: BG & Window Palette DATA.") )
+       ;;((= address #xFF46) (eboy-msg "Read DMA: DMA Transfer and Start Address.") )
+       ((= address #xFF45) (eboy-msg "Read LYC: LY Compare.") )
+       ((= address #xFF44) (eboy-msg "Read LY: LCDC Y Coordinate.") )
+       ((= address #xFF43) (eboy-msg "Read SCX: Scroll X.") )
+       ((= address #xFF42) (eboy-msg "Read SCY: Scroll Y.") )
+       ((= address #xFF41) (eboy-msg "Read STAT: LCDC Status.") )
+       ((= address #xFF40) (eboy-msg "Read LCDC: LCD Control.") )
+       ;; in between sound registers, but not consecutive, some unknow address.
+       ((= address #xFF0F)
+        (eboy-msg "Read IF: Interrupt Flag.")
+        (setq data eboy-interrupt-pending)
+        )
+       ((= address #xFF07) (eboy-msg "Read TAC: Timer Control.") )
+       ((= address #xFF06) (eboy-msg "Read TMA: Timer Modulo.") )
+       ((= address #xFF05) (eboy-msg "Read TIMA: Timer Counter.") )
+       ((= address #xFF04) (eboy-msg "Read DIV: Divider Register.") )
+       ((= address #xFF02) (eboy-msg "Read SC: SIO control.") )
+       ((= address #xFF01) (eboy-msg "Read SB: Serial transfer data.") )
+       ((= address #xFF00) (eboy-msg "Read P1: Joy Pad info and system type register.")
+        (cond
+         ((= (logand (lognot data) #x10) #x10) (eboy-msg "Direction keys selected") (setq data #x0F))
+         ((= (logand (lognot data) #x20) #x20) (eboy-msg "Button keys selected") (setq data #x0F))
+         )
+        ))
+      data
       )
-     ((= address #xFF07) (eboy-msg "Read TAC: Timer Control.") )
-     ((= address #xFF06) (eboy-msg "Read TMA: Timer Modulo.") )
-     ((= address #xFF05) (eboy-msg "Read TIMA: Timer Counter.") )
-     ((= address #xFF04) (eboy-msg "Read DIV: Divider Register.") )
-     ((= address #xFF02) (eboy-msg "Read SC: SIO control.") )
-     ((= address #xFF01) (eboy-msg "Read SB: Serial transfer data.") )
-     ((= address #xFF00) (eboy-msg "Read P1: Joy Pad info and system type register.") ))
-
-     (aref eboy-ram (- address #xE000))
     )
 
    ((and (>= address #xFEA0) (< address #xFF00))
@@ -289,9 +298,12 @@ Return the binary data as unibyte string."
    ((and (>= address #x4000) (< address #x8000))
     ;;(message "16kB switchable ROM bank")
     (aref eboy-rom address))
-   ((and (>= address #x0000) (< address #x4000))
+   ((and (>= address #x0100) (< address #x4000))
     ;;(message "16kB ROM bank #0")
     (aref eboy-rom address))
+   ((and (>= address #x0000) (< address #x0100))
+    ;;(message "internal ROM bank #0")
+    (aref eboy-boot-rom address))
    ))
 
 (defun eboy-mem-write-byte (address data)
@@ -346,9 +358,10 @@ Return the binary data as unibyte string."
      ((= address #xFF04) (eboy-msg "Write DIV: Divider Register.") )
      ((= address #xFF02) (eboy-msg "Write SC: SIO control.") )
      ((= address #xFF01) (eboy-msg "Write SB: Serial transfer data.") )
-     ((= address #xFF00) (eboy-msg "Write P1: Joy Pad info and system type register.") ))
+     ((= address #xFF00) (eboy-msg "Write P1: Joy Pad info and system type register.")
+      ))
 
-     (aset eboy-ram (- address #xE000) data))
+     (aset eboy-io (- address #xFF00) data))
    ((and (>= address #xFEA0) (< address #xFF00))
     ;; (message "Write Empty but unusable for I/O")
     (aset eboy-ram (- address #xE000) data))
@@ -565,9 +578,12 @@ Little Endian."
           (setq eboy-rA eboy-rC)) ;; 4
     (#x7A (eboy-log (format " LD A,D")) (assert nil t "unimplemented opcode")) ;; 4
     (#x7B (eboy-log (format " LD A,E")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x7C (eboy-log (format " LD A,H")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x7C (eboy-log (format " LD A,H"))
+          (setq eboy-rA eboy-rH)) ;; 4
     (#x7D (eboy-log (format " LD A,L")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x7E (eboy-log (format " LD A,(HL)")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x7E (eboy-log (format " LD A,(HL)"))
+          (setq eboy-rA (eboy-mem-read-byte (eboy-get-rHL)))
+          ) ;; 8
     (#x40 (eboy-log (format " LD B,B")) (assert nil t "unimplemented opcode")) ;; 4
     (#x41 (eboy-log (format " LD B,C")) (assert nil t "unimplemented opcode")) ;; 4
     (#x42 (eboy-log (format " LD B,D")) (assert nil t "unimplemented opcode")) ;; 4
@@ -625,7 +641,8 @@ Little Endian."
 
     ;; LD A,n
     (#x0A (eboy-log (format " LD A,(BC)")) (assert nil t "unimplemented opcode"))
-    (#x1A (eboy-log (format " LD A,(DE)")) (assert nil t "unimplemented opcode"))
+    (#x1A (eboy-log (format " LD A,(DE)"))
+          (setq eboy-rA (eboy-mem-read-byte (eboy-get-rDE))))
     (#xFA (eboy-log (format " LD A,(0x%02x)" (eboy-get-short)))
           (setq eboy-rA (eboy-mem-read-byte (eboy-get-short)))
           (eboy-inc-pc 2) ;; 16
@@ -640,7 +657,7 @@ Little Endian."
     (#x47 (eboy-log (format " LD B,A"))
           (setq eboy-rB eboy-rA)
           )                      ;; 4
-    (#x4F (eboy-log (format " LD C,A"))
+    (#x4F (eboy-log (format " LD C,A (0x%02x)" eboy-rA))
           (setq eboy-rC eboy-rA))                      ;; 4
     (#x57 (eboy-log (format " LD D,A")) (assert nil t "unimplemented opcode"))                      ;; 4
     (#x5F (eboy-log (format " LD E,A"))
@@ -651,8 +668,11 @@ Little Endian."
     (#x02 (eboy-log (format " LD (BC),A") (assert nil t "unimplemented opcode"))
           ;;(eboy-set-rBC eboy-rA) maybe (BC) means memory address?
           )                   ;; 8
-    (#x12 (eboy-log (format " LD (DE),A")) (assert nil t "unimplemented opcode"))                   ;; 8
-    (#x77 (eboy-log (format " LD (HL),A")) (assert nil t "unimplemented opcode"))                   ;; 8
+    (#x12 (eboy-log (format " LD (DE),A"))
+          (eboy-mem-write-byte (eboy-get-rDE) eboy-rA))                   ;; 8
+    (#x77 (eboy-log (format " LD (HL),A"))
+          (eboy-mem-write-byte (eboy-get-rHL) eboy-rA)
+          )                   ;; 8
     (#xEA (eboy-log (format " LD (0x%0004x),A" (eboy-get-short)))
           (eboy-mem-write-byte (eboy-get-short) eboy-rA)
           (eboy-inc-pc 2))                   ;; 16
@@ -676,7 +696,10 @@ Little Endian."
           (eboy-set-rHL (1+ (eboy-get-rHL)))) ;; 8
 
     ;; Put A into memory address HL. Increment HL.
-    (#x22 (eboy-log (format " LD (HLI),A")) (assert nil t "unimplemented opcode"))
+    (#x22 (eboy-log (format " LD (HLI),A"))
+          (eboy-mem-write-byte (eboy-get-rHL) eboy-rA)
+          (eboy-set-rHL (1+ (eboy-get-rHL)))
+          ) ;; 8
     ;; Put A into memory address $FF00+n
     (#xE0 (eboy-log (format " LD ($FF00+0x%02x),A (0x%02x)" (eboy-get-byte) eboy-rA))
           (eboy-mem-write-byte (+ #xFF00 (eboy-get-byte)) eboy-rA)
@@ -690,7 +713,10 @@ Little Endian."
     (#x01 (eboy-log (format " LD BC, $%04x" (eboy-get-short)))
           (eboy-set-rBC (eboy-get-short))
           (eboy-inc-pc 2)) ;; 12
-    (#x11 (eboy-log (format " LD DE, $%04x" (eboy-get-short))) (assert nil t "unimplemented opcode")) ;; 12
+    (#x11 (eboy-log (format " LD DE, $%04x" (eboy-get-short)))
+          (eboy-set-rDE (eboy-get-short))
+          (eboy-inc-pc 2)
+          ) ;; 12
     (#x21 (eboy-log (format " LD HL, $%04x" (eboy-get-short)))
           (eboy-set-rHL (eboy-get-short))
           (eboy-inc-pc 2)) ;; 12
@@ -955,7 +981,11 @@ Little Endian."
           (eboy-set-flag flags :H (< (logand eboy-rC #xf) (logand (1- eboy-rC) #xf)))
           ) ;; 4
     (#x14 (eboy-log (format " INC D ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x1C (eboy-log (format " INC E ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x1C (eboy-log (format " INC E "))
+          (eboy-set-flag flags :Z (zerop eboy-rE))
+          (eboy-set-flag flags :N nil)
+          (eboy-set-flag flags :H (< (logand eboy-rE #xf) (logand (1- eboy-rE) #xf)))
+          ) ;; 4
     (#x24 (eboy-log (format " INC H ")) (assert nil t "unimplemented opcode")) ;; 4
     (#x2C (eboy-log (format " INC L ")) (assert nil t "unimplemented opcode")) ;; 4
     (#x34 (eboy-log (format " INC (HL)  "))
@@ -1018,7 +1048,8 @@ Little Endian."
     ;; INC nn - Increment register nn.
     ;; Flags affected: None
     (#x03 (eboy-log (format " INC BC ")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x13 (eboy-log (format " INC DE ")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x13 (eboy-log (format " INC DE "))
+          (eboy-set-rDE (1+ (eboy-get-rDE)))) ;; 8
     (#x23 (eboy-log (format " INC HL "))
           (eboy-set-rHL (1+ (eboy-get-rHL)))
           ) ;; 8
@@ -1052,8 +1083,8 @@ Little Endian."
     ;; N - Set.
     ;; H - Set.
     ;; C - Not affected.
-    (#x2F (eboy-log (format " CPL -/- "))
-          (setq eboy-rA (lognot eboy-rA))
+    (#x2F (eboy-log (format " CPL -/- (0x%02x<-0x%02x)" (logand #xFF (lognot eboy-rA)) eboy-rA ))
+          (setq eboy-rA (logand #xFF (lognot eboy-rA)))
           (eboy-set-flag flags :N t)
           (eboy-set-flag flags :H t)
           ) ;; 4
@@ -1180,7 +1211,15 @@ Little Endian."
               ;; C - Contains old bit 7 data.
               (#x17 (eboy-log (format " RL A")) (assert nil t "unimplemented opcode")) ;; 8
               (#x10 (eboy-log (format " RL B")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x11 (eboy-log (format " RL C")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x11 (eboy-log (format " RL C"))
+                    (let ((c (= (lsh eboy-rC -7) #x01)))
+                      (setq eboy-rC (logior (lsh eboy-rC 1) (if (eboy-get-flag flags :C) #x01 #x00)))
+                      (eboy-set-flag flags :Z (zerop eboy-rC))
+                      (eboy-set-flag flags :N nil)
+                      (eboy-set-flag flags :H nil)
+                      (eboy-set-flag flags :C c)
+                      )
+                    ) ;; 8
               (#x12 (eboy-log (format " RL D")) (assert nil t "unimplemented opcode")) ;; 8
               (#x13 (eboy-log (format " RL E")) (assert nil t "unimplemented opcode")) ;; 8
               (#x14 (eboy-log (format " RL H")) (assert nil t "unimplemented opcode")) ;; 8
@@ -1277,6 +1316,12 @@ Little Endian."
               (#x45 (eboy-log (format " BIT b,L")) (assert nil t "unimplemented opcode")) ;; 8
               (#x46 (eboy-log (format " BIT b,(HL) ")) (assert nil t "unimplemented opcode"));; 16
 
+              (#x7C (eboy-log (format " BIT 7,H"))
+                    (eboy-set-flag flags :Z (not (= (logand eboy-rH #x80) #x80)))
+                    (eboy-set-flag flags :N nil)
+                    (eboy-set-flag flags :H t)
+                    ) ;; 8
+
               ;; SET b,r - Set bit b in register r.
               ;; Flags affected:
               ;; None.
@@ -1300,14 +1345,14 @@ Little Endian."
               (#x84 (eboy-log (format " RES b,H")) (assert nil t "unimplemented opcode")) ;; 8
               (#x85 (eboy-log (format " RES b,L")) (assert nil t "unimplemented opcode")) ;; 8
               (#x86 (eboy-log (format " RES b,(HL) ")) (assert nil t "unimplemented opcode"));; 16
-              (otherwise (eboy-log (format "Unimplemented BC opcode 0x%x" opcode)))
+              (otherwise (eboy-log (assert nil t (format "Unimplemented BC opcode 0x%x" opcode))))
               )))
 
 
     ;; JP nn - Jump to address nn.
     (#xC3 (eboy-log (format " JP $%04x" (eboy-get-short))) ;; 12
           (setq eboy-pc (1- (eboy-get-short))) ;; Compensate for the pc +1 that is done with each instruction.
-          ;;(eboy-inc-pc 2)
+
           )
 
     ;; JP cc,nn - Jump to address n if following condition is true:
@@ -1317,7 +1362,11 @@ Little Endian."
     ;;   cc = C, Jump if C flag is set.
     ;; nn = two byte immediate value. (LS byte first.)
     (#xC2 (eboy-log (format " JP NZ,nn  ")) (assert nil t "unimplemented opcode"));; 12
-    (#xCA (eboy-log (format " JP Z,nn  ")) (assert nil t "unimplemented opcode"));; 12
+    (#xCA (eboy-log (format " JP Z,$%04x" (eboy-get-short)))
+          (if (eboy-get-flag flags :Z)
+              (setq eboy-pc (1- (eboy-get-short))) ;; Compensate for the pc +1 that is done with each instruction.
+            (eboy-inc-pc 2))
+          );; 12
     (#xD2 (eboy-log (format " JP NC,nn  ")) (assert nil t "unimplemented opcode"));; 12
     (#xDA (eboy-log (format " JP C,nn  ")) (assert nil t "unimplemented opcode"));; 12
 
@@ -1327,7 +1376,9 @@ Little Endian."
 
     ;; JR n - Add n to current address and jump to it.
     ;; nn = one byte signed immediate value
-    (#x18 (eboy-log (format " JR n ")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x18 (eboy-log (format " JR %02d " (eboy-byte-to-signed (eboy-get-byte))))
+          (setq eboy-pc (+ eboy-pc (eboy-byte-to-signed (eboy-get-byte)) 1))
+          ) ;; 8
 
     ;; JR cc,n - If following condition is true then add n to current address and jump to it:
     ;;  n = one byte signed immediate value
@@ -1415,7 +1466,11 @@ Little Endian."
     (#xD8 (eboy-log (format " RET C ")) (assert nil t "unimplemented opcode")) ;; 8
 
     ;; RETI - Pop two bytes from stack & jump to that address then enable interrupts.
-    (#xD9 (eboy-log (format " RETI -/- " )) (assert nil t "unimplemented opcode")) ;; 8
+    (#xD9 (eboy-log (format " RETI -/- " ))
+          (setq eboy-pc (1- (eboy-mem-read-short eboy-sp))) ;; decrement one, since it will be incremented next.
+          (incf eboy-sp 2)
+          (setq eboy-interrupt-master-enbl t)
+          ) ;; 8
 
     ;; Non existant opcodes
     (#xD3 (eboy-log (format "Non existant opcode: 0x%02x" opcode)) (assert nil t))
@@ -1488,15 +1543,20 @@ Little Endian."
 (defun eboy-load-rom ()
   "Load the rom file.  For now just automatically load a test rom."
   (interactive)
+  (if t
+      (progn
+        (setq eboy-boot-rom-filename "boot/DMG_ROM.bin")
+        (setq eboy-boot-rom (vconcat (eboy-read-bytes eboy-boot-rom-filename)))
+        (setq eboy-pc 0))
+    (setq eboy-pc eboy-pc-start-address)
+    (setq eboy-sp eboy-sp-initial-value)
+    (eboy-init-registers)
+    (eboy-init-memory)
+    )
   (setq eboy-rom-filename "roms/test_rom.gb")
   (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
   (setq eboy-rom-size (length eboy-rom))
-  (setq eboy-pc eboy-pc-start-address)
-  (setq eboy-sp eboy-sp-initial-value)
   (setq eboy-debug-nr-instructions 0)
-  ;;(eboy-reset-CPU-flags)
-  (eboy-init-registers)
-  (eboy-init-memory)
   (switch-to-buffer "*eboy*")
   (erase-buffer)
   (if eboy-debug-1 (eboy-log (format "Load rom: %s\n" eboy-rom-filename)))
