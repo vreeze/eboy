@@ -38,7 +38,7 @@ Return the binary data as unibyte string."
 ;;(defvar eboy-flags (make-bool-vector 4 t) "The flags Z(Zero) S(Negative) H(Halve Carry) and C(Carry).")
 (defvar eboy-debug-nr-instructions nil "Number of instructions executed.")
 (defvar eboy-debug-1 nil "Enable debugging info.")
-(defvar eboy-debug-2 t "Enable debugging info.")
+(defvar eboy-debug-2 nil "Enable debugging info.")
 
 
 (defvar eboy-rA 0 "Register A.")
@@ -546,11 +546,91 @@ Little Endian."
   "Print OPCODE is unimplemented."
   (insert (format "Unimplemented opcode 0x%02x" opcode)))
 
+;;;;;
+;;;; DISPLAY section
+;;;;;
+
+(defun eboy-get-color (byte1 byte2 x)
+  "Get from line y BYTE1 and BYTE2 the color of coordinate X."
+  (let* ((bit (- 7(mod x 8)))
+         (mask (lsh 1 bit)))
+    (logior (lsh (logand byte2 mask) (+ (* -1 bit) 1))
+            (lsh (logand byte1 mask) (* -1 bit))))
+  )
+
+ ;; (eboy-get-color #x64 #x28 0) ; ⇒ 0
+ ;; (eboy-get-color #x64 #x28 1) ; ⇒ 1
+ ;; (eboy-get-color #x64 #x28 2) ; ⇒ 3
+ ;; (eboy-get-color #x64 #x28 3) ; ⇒ 0
+ ;; (eboy-get-color #x64 #x28 4) ; ⇒ 2
+ ;; (eboy-get-color #x64 #x28 5) ; ⇒ 1
+ ;; (eboy-get-color #x64 #x28 6) ; ⇒ 0
+ ;; (eboy-get-color #x64 #x28 7) ; ⇒ 0
+
+;; ⇒ 1 (x,y) -> tile-number -> tile-id -> 2 bytes for a line y.
+
+(defun eboy-get-tile-nr (x y)
+  "Given a X Y coordinate, return tile number."
+  (+ (/ x 8) (* (/ y 8) 32))
+  )
+;; (eboy-get-tile-nr 255 255) ; ⇒ 1023
+
+(defun eboy-get-tile-id (tile-nr)
+  "Get tile id from Backgroun Tile Map using the TILE-NR."
+  (eboy-mem-read-byte (+ #x9800 tile-nr)) ; assuming tile map 0 for now
+  )
+(defun eboy-get-color-xy (x y)
+  "Get the color for coordinate X, Y."
+  (let ((tile-line-addr (+ (+ #x8000 (* (eboy-get-tile-id(eboy-get-tile-nr x y)) 16)) (* (mod y 8) 2))))
+    (eboy-get-color (eboy-mem-read-byte tile-line-addr) (eboy-mem-read-byte (1+ tile-line-addr)) x )
+    )
+  )
+
+(defvar eboy-display-color-table (make-hash-table :test 'eq) "The hash table with display values.")
+(puthash 3 "15 56 15" eboy-display-color-table)
+(puthash 2 "48 98 48" eboy-display-color-table)
+(puthash 1 "139 172 15" eboy-display-color-table)
+(puthash 0 "155 188 15" eboy-display-color-table)
+
+(defun eboy-write-display ()
+  "Write the colors."
+  (interactive)
+  (switch-to-buffer "*eboy-display*")
+  (insert "P3\n")
+  (insert "160 144\n")
+  (insert "255\n")
+  (dotimes (y 144)
+    (dotimes (x 160)
+      (insert (format "%s " (gethash (eboy-get-color-xy x y) eboy-display-color-table)))
+      )
+    (insert "\n")
+    )
+  (image-mode)
+  )
+
+ ;; assuming data table 0 for now
+(eboy-get-tile-nr 17 11)
+
+;; (mod 754 8)
+;;
+;; ((lambda (x) (lsh 1 (- 7 (mod x 8))) ) 8)
+;;
+;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 1) ; ⇒ 2
+;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 2) ; ⇒ 4
+;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 3) ; ⇒ 6
+;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 4) ; ⇒ 0
+;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 5) ; ⇒ 2
+;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 6) ; ⇒ 4
+;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 7) ; ⇒ 6
+;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 8) ; ⇒ 0
+;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 0) ; ⇒ 0
+
+
 
 (defun eboy-process-opcode (opcode flags)
   "Process OPCODE, cpu FLAGS state."
   (if eboy-debug-1 (eboy-debug-print-cpu-state flags))
-  (insert (format "\npc: 0x%x, opcode: 0x%02x" eboy-pc opcode))
+  (if eboy-debug-1 (insert (format "\npc: 0x%x, opcode: 0x%02x" eboy-pc opcode)))
   (cl-case opcode
     (#x00 (eboy-log " NOP"))
 
@@ -577,7 +657,8 @@ Little Endian."
     (#x79 (eboy-log (format " LD A,C"))
           (setq eboy-rA eboy-rC)) ;; 4
     (#x7A (eboy-log (format " LD A,D")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x7B (eboy-log (format " LD A,E")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x7B (eboy-log (format " LD A,E"))
+          (setq eboy-rA eboy-rE)) ;; 4
     (#x7C (eboy-log (format " LD A,H"))
           (setq eboy-rA eboy-rH)) ;; 4
     (#x7D (eboy-log (format " LD A,L")) (assert nil t "unimplemented opcode")) ;; 4
@@ -659,11 +740,13 @@ Little Endian."
           )                      ;; 4
     (#x4F (eboy-log (format " LD C,A (0x%02x)" eboy-rA))
           (setq eboy-rC eboy-rA))                      ;; 4
-    (#x57 (eboy-log (format " LD D,A")) (assert nil t "unimplemented opcode"))                      ;; 4
+    (#x57 (eboy-log (format " LD D,A"))
+          (setq eboy-rD eboy-rA))                      ;; 4
     (#x5F (eboy-log (format " LD E,A"))
           (setq eboy-rE eboy-rA)
           )                      ;; 4
-    (#x67 (eboy-log (format " LD H,A")) (assert nil t "unimplemented opcode"))                      ;; 4
+    (#x67 (eboy-log (format " LD H,A"))
+          (setq eboy-rH eboy-rA))                      ;; 4
     (#x6F (eboy-log (format " LD L,A")) (assert nil t "unimplemented opcode"))                      ;; 4
     (#x02 (eboy-log (format " LD (BC),A") (assert nil t "unimplemented opcode"))
           ;;(eboy-set-rBC eboy-rA) maybe (BC) means memory address?
@@ -823,7 +906,15 @@ Little Endian."
     ;; H - Set if no borrow from bit 4.
     ;; C - Set if no borrow.
     (#x97 (eboy-log (format " SUB A")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#x90 (eboy-log (format " SUB B")) (assert nil t "unimplemented opcode"))                        ;; 4
+    (#x90 (eboy-log (format " SUB B"))
+          (let ((oldval eboy-rA))
+            (eboy-add-byte eboy-rA (* -1 eboy-rB))
+            (eboy-set-flag flags :Z (zerop eboy-rA))
+            (eboy-set-flag flags :N t)
+            (eboy-set-flag flags :H (> (logand eboy-rA #x0F) (logand oldval #x0F)))
+            (eboy-set-flag flags :C (> (logand eboy-rA #xFF) (logand oldval #xFF)))
+            )
+          )                        ;; 4
     (#x91 (eboy-log (format " SUB C")) (assert nil t "unimplemented opcode"))                        ;; 4
     (#x92 (eboy-log (format " SUB D")) (assert nil t "unimplemented opcode"))                        ;; 4
     (#x93 (eboy-log (format " SUB E")) (assert nil t "unimplemented opcode"))                        ;; 4
@@ -973,7 +1064,12 @@ Little Endian."
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H (< (logand eboy-rA #xf) (logand (1- eboy-rA) #xf)))
           ) ;; 4
-    (#x04 (eboy-log (format " INC B ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x04 (eboy-log (format " INC B "))
+          (eboy-add-byte eboy-rB 1)
+          (eboy-set-flag flags :Z (zerop eboy-rB))
+          (eboy-set-flag flags :N nil)
+          (eboy-set-flag flags :H (< (logand eboy-rB #xf) (logand (1- eboy-rB) #xf)))
+          ) ;; 4
     (#x0C (eboy-log (format " INC C "))
           (eboy-add-byte eboy-rC 1)
           (eboy-set-flag flags :Z (zerop eboy-rC))
@@ -986,7 +1082,11 @@ Little Endian."
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H (< (logand eboy-rE #xf) (logand (1- eboy-rE) #xf)))
           ) ;; 4
-    (#x24 (eboy-log (format " INC H ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x24 (eboy-log (format " INC H "))
+          (eboy-set-flag flags :Z (zerop eboy-rH))
+          (eboy-set-flag flags :N nil)
+          (eboy-set-flag flags :H (< (logand eboy-rH #xf) (logand (1- eboy-rH) #xf)))
+          ) ;; 4
     (#x2C (eboy-log (format " INC L ")) (assert nil t "unimplemented opcode")) ;; 4
     (#x34 (eboy-log (format " INC (HL)  "))
           (let* ((hl (eboy-get-rHL))
@@ -1139,7 +1239,15 @@ Little Endian."
     ;; N - Reset.
     ;; H - Reset.
     ;; C - Contains old bit 7 data.
-    (#x17 (eboy-log (format " RLA -/- ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x17 (eboy-log (format " RLA -/- "))
+          (let ((c (= (lsh eboy-rA -7) #x01)))
+            (setq eboy-rA (logior (lsh eboy-rA 1) (if (eboy-get-flag flags :C) #x01 #x00)))
+            (eboy-set-flag flags :Z (zerop eboy-rA))
+            (eboy-set-flag flags :N nil)
+            (eboy-set-flag flags :H nil)
+            (eboy-set-flag flags :C c)
+            )
+          ) ;; 4
 
     ;; RRCA - Rotate A right. Old bit 0 to Carry flag.
     ;; Flags affected:
@@ -1494,7 +1602,8 @@ Little Endian."
   (if (= eboy-pc #x282c)
       (progn (message "Set LCDC Y coordinate to V-Blank range 0x90-0x99")
              (eboy-mem-write-byte #xFF44 #x91)))
-  )
+  (if (= eboy-pc #x68) (eboy-mem-write-byte #xFF44 #x90)
+      ))
 
 (message (format "%x" (logand #xFF (lognot eboy-im-vblank))))
 (defun eboy-disable-interrupt (interrupt-mask)
@@ -1543,7 +1652,7 @@ Little Endian."
 (defun eboy-load-rom ()
   "Load the rom file.  For now just automatically load a test rom."
   (interactive)
-  (if t
+  (if nil
       (progn
         (setq eboy-boot-rom-filename "boot/DMG_ROM.bin")
         (setq eboy-boot-rom (vconcat (eboy-read-bytes eboy-boot-rom-filename)))
@@ -1572,17 +1681,18 @@ Little Endian."
     (eboy-set-flag flags :H t)
     (eboy-set-flag flags :C t)
 
-    (while (< eboy-debug-nr-instructions 150000)
+    (while (< eboy-debug-nr-instructions 500000) ;(or (<= eboy-pc #x100) )
       (eboy-process-interrupts)
       (if eboy-debug-1 (insert (format "%2d: " eboy-debug-nr-instructions)))
       (eboy-process-opcode (eboy-mem-read-byte eboy-pc) flags)
-      (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
-      )
+      (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1)))
     )
   (message "we finished?")
+  (message "eboy-pc: %x" eboy-pc)
   )
 
 (eboy-load-rom)
+
 
 
 (provide 'eboy)
