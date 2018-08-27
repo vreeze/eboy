@@ -33,13 +33,14 @@ Return the binary data as unibyte string."
 (defvar eboy-interrupt-master-enbl nil "Interupts master enabled flag.")
 (defvar eboy-interrupt-pending #x00 "Flags of pending interrupts.")
 (defvar eboy-interrupt-enabled #x00 "Flags of enabled interrupts.")
+(defvar eboy-boot-rom-disabled-p nil "After boot disable the boot rom.")
 
 
 ;;(defvar eboy-flags (make-bool-vector 4 t) "The flags Z(Zero) S(Negative) H(Halve Carry) and C(Carry).")
 (defvar eboy-debug-nr-instructions nil "Number of instructions executed.")
-(defvar eboy-debug-1 nil "Enable debugging info.")
+(defvar eboy-debug-1 t "Enable debugging info.")
 (defvar eboy-debug-2 nil "Enable debugging info.")
-
+(defvar eboy-debug-pc-max nil "The program counter max.")
 
 (defvar eboy-rA 0 "Register A.")
 (defvar eboy-rB 0 "Register B.")
@@ -54,18 +55,18 @@ Return the binary data as unibyte string."
   "Simulate byte behavior: add VALUE to BYTE."
   `(progn (setq ,byte (+ ,byte ,value))
           (if (> ,byte #xFF)
-              (setq ,byte (- ,byte #xFF)))
+              (setq ,byte (- ,byte #x100)))
           (if (< ,byte 0)
-              (setq ,byte (+ ,byte #xFF))))
+              (setq ,byte (+ ,byte #x100))))
   )
 
 (defmacro eboy-add-to-short (short value)
   "Simulate short behavior: add VALUE to SHORT."
   `(progn (setq ,short (+ ,short ,value))
           (if (> ,short #xFFFF)
-              (setq ,short (- ,short #xFFFF)))
+              (setq ,short (- ,short #x10000)))
           (if (< ,short 0)
-              (setq ,short (+ ,short #xFFFF))))
+              (setq ,short (+ ,short #x10000))))
   )
 
 ;; (defmacro eboy-subtract-byte (byte value)
@@ -182,7 +183,7 @@ Return the binary data as unibyte string."
 
 (defun eboy-msg (msg)
   "Write a MSG string to the message buffer."
-  (message "eboy: %s" msg)
+  (if eboy-debug-1 (message "eboy: %s" msg))
   )
 
 (defvar eboy-ram (make-vector (* 8 1024) 0) "The 8 kB interal RAM.")
@@ -303,7 +304,10 @@ Return the binary data as unibyte string."
     (aref eboy-rom address))
    ((and (>= address #x0000) (< address #x0100))
     ;;(message "internal ROM bank #0")
-    (aref eboy-boot-rom address))
+    (if eboy-boot-rom-disabled-p
+        (aref eboy-rom address)
+      (aref eboy-boot-rom address))
+    )
    ))
 
 (defun eboy-mem-write-byte (address data)
@@ -386,7 +390,7 @@ Return the binary data as unibyte string."
     ;;(assert nil t "Non writable: 16kB switchable ROM bank")
     )
    ((and (>= address #x0000) (< address #x4000))
-    ;; Tetris writes to 0x2000... why?
+    ;; Tetris writes to 0x2000... why? memory bank select.
     ;;(assert nil t "Non writable: 16kB ROM bank #0")
     )
    ))
@@ -568,6 +572,27 @@ Little Endian."
  ;; (eboy-get-color #x64 #x28 7) ; ⇒ 0
 
 ;; ⇒ 1 (x,y) -> tile-number -> tile-id -> 2 bytes for a line y.
+(defun eboy-window-tile-map-selected-addr ()
+  "docstring"
+  (interactive)
+  (if (= #x00 (logand (eboy-mem-read-byte #xFF40) #x40))
+      #x9800
+    #x9c00)
+  )
+(defun eboy-bg-&-window-tile-data-selected-addr ()
+  "docstring"
+  (interactive)
+  (if (= #x00 (logand (eboy-mem-read-byte #xFF40) #x10))
+      #x8800
+    #x8000)
+  )
+(defun eboy-bg-tile-map-selected-addr ()
+  "docstring"
+  (interactive)
+  (if (= #x00 (logand (eboy-mem-read-byte #xFF40) #x08))
+      #x9800
+    #x9c00)
+  )
 
 (defun eboy-get-tile-nr (x y)
   "Given a X Y coordinate, return tile number."
@@ -580,7 +605,7 @@ Little Endian."
   (eboy-mem-read-byte (+ #x9800 tile-nr)) ; assuming tile map 0 for now
   )
 (defun eboy-get-color-xy (x y)
-  "Get the color for coordinate X, Y."
+  "Get the color for coordinate X, Y from the bg & window tile data."
   (let ((tile-line-addr (+ (+ #x8000 (* (eboy-get-tile-id(eboy-get-tile-nr x y)) 16)) (* (mod y 8) 2))))
     (eboy-get-color (eboy-mem-read-byte tile-line-addr) (eboy-mem-read-byte (1+ tile-line-addr)) x )
     )
@@ -596,6 +621,7 @@ Little Endian."
   "Write the colors."
   (interactive)
   (switch-to-buffer "*eboy-display*")
+  (erase-buffer)
   (insert "P3\n")
   (insert "160 144\n")
   (insert "255\n")
@@ -609,7 +635,7 @@ Little Endian."
   )
 
  ;; assuming data table 0 for now
-(eboy-get-tile-nr 17 11)
+;;(eboy-get-tile-nr 17 11)
 
 ;; (mod 754 8)
 ;;
@@ -629,7 +655,7 @@ Little Endian."
 
 (defun eboy-process-opcode (opcode flags)
   "Process OPCODE, cpu FLAGS state."
-  (if eboy-debug-1 (eboy-debug-print-cpu-state flags))
+  ;;(if eboy-debug-1 (eboy-debug-print-cpu-state flags))
   (if eboy-debug-1 (insert (format "\npc: 0x%x, opcode: 0x%02x" eboy-pc opcode)))
   (cl-case opcode
     (#x00 (eboy-log " NOP"))
@@ -1107,7 +1133,7 @@ Little Endian."
     ;; C - Not affected.
     (#x3D (eboy-log (format " DEC A "))
           (eboy-dec eboy-rA flags)) ;; 4
-    (#x05 (eboy-log (format " DEC B "))
+    (#x05 (eboy-log (format " DEC B (before dec %d)" eboy-rB))
           (eboy-dec eboy-rB flags)
           ) ;; 4
     (#x0D (eboy-log (format " DEC C ")) (eboy-dec eboy-rC flags)) ;; 4
@@ -1602,10 +1628,15 @@ Little Endian."
   (if (= eboy-pc #x282c)
       (progn (message "Set LCDC Y coordinate to V-Blank range 0x90-0x99")
              (eboy-mem-write-byte #xFF44 #x91)))
-  (if (= eboy-pc #x68) (eboy-mem-write-byte #xFF44 #x90)
-      ))
+  (if (= eboy-pc #x68) (eboy-mem-write-byte #xFF44 #x90) )
+  ; (if (> eboy-pc eboy-debug-pc-max)
+  ;     (progn
+  ;       (insert (format "instr: %x pc: %x\n" eboy-debug-nr-instructions eboy-pc))
+  ;       (setq eboy-debug-pc-max eboy-pc)))
+  (if (= eboy-pc #x91) (setq eboy-debug-nr-instructions 99999999999) )
+  )
 
-(message (format "%x" (logand #xFF (lognot eboy-im-vblank))))
+;;(message (format "%x" (logand #xFF (lognot eboy-im-vblank))))
 (defun eboy-disable-interrupt (interrupt-mask)
   "Remove the interrupt flag for INTERRUPT-MASK."
   (setq eboy-interrupt-pending (logand eboy-interrupt-pending (lognot interrupt-mask)))
@@ -1648,6 +1679,7 @@ Little Endian."
                 )))
     )
   )
+(defvar eboy-flags nil "Temp storage flags.")
 
 (defun eboy-load-rom ()
   "Load the rom file.  For now just automatically load a test rom."
@@ -1661,11 +1693,13 @@ Little Endian."
     (setq eboy-sp eboy-sp-initial-value)
     (eboy-init-registers)
     (eboy-init-memory)
+    (setq eboy-boot-rom-disabled-p t) ;; remember to do this also after the boot rom has jumped to #x100
     )
   (setq eboy-rom-filename "roms/test_rom.gb")
   (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
   (setq eboy-rom-size (length eboy-rom))
   (setq eboy-debug-nr-instructions 0)
+  (setq eboy-debug-pc-max 0)
   (switch-to-buffer "*eboy*")
   (erase-buffer)
   (if eboy-debug-1 (eboy-log (format "Load rom: %s\n" eboy-rom-filename)))
@@ -1681,19 +1715,87 @@ Little Endian."
     (eboy-set-flag flags :H t)
     (eboy-set-flag flags :C t)
 
-    (while (< eboy-debug-nr-instructions 500000) ;(or (<= eboy-pc #x100) )
-      (eboy-process-interrupts)
-      (if eboy-debug-1 (insert (format "%2d: " eboy-debug-nr-instructions)))
-      (eboy-process-opcode (eboy-mem-read-byte eboy-pc) flags)
-      (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1)))
+    ;(while (< eboy-debug-nr-instructions 50) ;(or (<= eboy-pc #x100) )
+    ;  (eboy-process-interrupts)
+    ;  ;;(if eboy-debug-1 (insert (format "%2d: " eboy-debug-nr-instructions)))
+    ;  (eboy-process-opcode (eboy-mem-read-byte eboy-pc) flags)
+    ;  (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1)))
+
+    ;; save flags
+    (setq eboy-flags flags)
     )
-  (message "we finished?")
-  (message "eboy-pc: %x" eboy-pc)
+  (message "we finished? eboy-pc: %x" eboy-pc)
   )
 
+(defun step ()
+  "docstring"
+  (interactive)
+  (eboy-process-interrupts)
+;;  (setq eboy-debug-1 t)
+  ;;(insert (format "%2d: " eboy-debug-nr-instructions))
+  (eboy-process-opcode (eboy-mem-read-byte eboy-pc) eboy-flags)
+  (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
+  )
+
+(defun step-nr-of-times (nr)
+  "docstring"
+  (interactive "nNr of steps: ")
+;;  (setq eboy-debug-1 t)
+  (while (and (/= nr 0) (/= eboy-pc #xe0)) ;(or (<= eboy-pc #x100) )
+    (eboy-process-interrupts)
+    ;;(insert (format "%2d: " eboy-debug-nr-instructions))
+    (eboy-process-opcode (eboy-mem-read-byte eboy-pc) eboy-flags)
+    (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
+    (decf nr)
+    )
+  (message "stopped! left: %d" nr)
+  )
+
+(defun eboy-debug-break-at-pc-addr (pc-addr)
+  "docstring"
+  (interactive "npc address: ")
+  ;;  (setq eboy-debug-1 t)
+  (while (/= pc-addr eboy-pc ) ;(or (<= eboy-pc #x100) )
+    (eboy-process-interrupts)
+    ;;(insert (format "%2d: " eboy-debug-nr-instructions))
+    (eboy-process-opcode (eboy-mem-read-byte eboy-pc) eboy-flags)
+    (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
+    )
+  (message "break at opcode %02x\n" pc-addr)
+  )
+
+;; (setq eboy-debug-1 nil)
+;; (setq eboy-debug-2 nil)
 (eboy-load-rom)
 
 
+(defvar eboy-mode-map nil "Keymap for `eboy-mode'.")
 
-(provide 'eboy)
+(progn
+  (setq eboy-mode-map (make-sparse-keymap))
+  (define-key eboy-mode-map (kbd "<f5>") 'step)
+  (define-key eboy-mode-map (kbd "f") 'eboy-print-registers)
+  ;; by convention, major mode's keys should begin with the form C-c C-‹key›
+  ;; by convention, keys of the form C-c ‹letter› are reserved for user. don't define such keys in your major mode
+  )
+
+;;(define-minor-mode eboy-mode
+;;  "Eboy"
+;;  :lighter " eboy"
+;;  :keymap (let ((map (make-sparse-keymap)))
+;;            (define-key map (kbd "C-c t") 'step)
+;;            map))
+
+
+(define-derived-mode eboy-mode text-mode "eboy"
+  "eboy-mode is a major mode for editing language my.
+
+\\{eboy-mode-map}"
+
+  ;; actually no need
+  (use-local-map eboy-mode-map) ; if your keymap name is modename follow by -map, then this line is not necessary, because define-derived-mode will find it and set it for you
+
+  )
+
+(provide 'eboy-mode)
 ;;; eboy.el ends here
