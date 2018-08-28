@@ -34,6 +34,8 @@ Return the binary data as unibyte string."
 (defvar eboy-interrupt-pending #x00 "Flags of pending interrupts.")
 (defvar eboy-interrupt-enabled #x00 "Flags of enabled interrupts.")
 (defvar eboy-boot-rom-disabled-p nil "After boot disable the boot rom.")
+(defvar eboy-clock-cycles 0 "Number of elapsed clock cycles.") ;; when to reset?
+(defvar eboy-display-write-done nil "Indicate if at line 143 we need to write the display.")
 
 
 ;;(defvar eboy-flags (make-bool-vector 4 t) "The flags Z(Zero) S(Negative) H(Halve Carry) and C(Carry).")
@@ -337,6 +339,9 @@ Return the binary data as unibyte string."
      ((= address #xFF4B) (eboy-msg "Write WX: Window X position.") )
      ((= address #xFF4B) (eboy-msg "Write WX: Window X position.") )
      ((= address #xFF4A) (eboy-msg "Write WY: Window Y position.") )
+     ((= address #xFF50) (eboy-msg "Write: Disable boot rom.")
+      ;; on boot it writes 0x01, lets disable it always
+      (setq eboy-boot-rom-disabled-p t))
      ((= address #xFF49) (eboy-msg "Write OBP1: Object Palette 1 Data.") )
      ((= address #xFF48) (eboy-msg "Write OBPO: Object Palette 0 Data.") )
      ((= address #xFF47) (eboy-msg "Write BGP: BG & Window Palette DATA.") )
@@ -621,6 +626,7 @@ Little Endian."
   "Write the colors."
   (interactive)
   (switch-to-buffer "*eboy-display*")
+  (fundamental-mode)
   (erase-buffer)
   (insert "P3\n")
   (insert "160 144\n")
@@ -632,6 +638,20 @@ Little Endian."
     (insert "\n")
     )
   (image-mode)
+  )
+
+(defun eboy-lcd-cycle ()
+  "Perform a single lcd cycle."
+  (let* ((screen-cycle (mod eboy-clock-cycles 70224))
+         (line-nr (mod screen-cycle 456)))
+    (when (and (= line-nr 143) (not eboy-display-write-done))
+      (eboy-write-display)
+      (setq eboy-display-write-done t))
+    (when (= line-nr 144)
+      (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-vblank))
+      (setq eboy-display-write-done nil)
+        )
+    )
   )
 
  ;; assuming data table 0 for now
@@ -658,182 +678,182 @@ Little Endian."
   ;;(if eboy-debug-1 (eboy-debug-print-cpu-state flags))
   (if eboy-debug-1 (insert (format "\npc: 0x%x, opcode: 0x%02x" eboy-pc opcode)))
   (cl-case opcode
-    (#x00 (eboy-log " NOP"))
+    (#x00 (eboy-log " NOP") (incf eboy-clock-cycles 4))
 
     ;; LD nn,n
     (#x06 (eboy-log (format " LD B, #0x%02x" (eboy-get-byte)))
      (setq eboy-rB (eboy-get-byte))
-     (eboy-inc-pc 1))
+     (eboy-inc-pc 1) (incf eboy-clock-cycles 8))
     (#x0E (eboy-log (format " LD C, #0x%02x" (eboy-get-byte)))
           (setq eboy-rC (eboy-get-byte))
-          (eboy-inc-pc 1))
+          (eboy-inc-pc 1) (incf eboy-clock-cycles 8))
     (#x16 (eboy-log (format " LD D, #0x%02x" (eboy-get-byte)))
-          (eboy-inc-pc 1))
+          (eboy-inc-pc 1) (incf eboy-clock-cycles 8))
     (#x1E (eboy-log (format " LD E, #0x%02x" (eboy-get-byte)))
-          (eboy-inc-pc 1))
+          (eboy-inc-pc 1) (incf eboy-clock-cycles 8))
     (#x26 (eboy-log (format " LD H, #0x%02x" (eboy-get-byte)))
-          (eboy-inc-pc 1))
+          (eboy-inc-pc 1) (incf eboy-clock-cycles 8))
     (#x2E (eboy-log (format " LD L, #0x%02x" (eboy-get-byte)))
-          (eboy-inc-pc 1))
+          (eboy-inc-pc 1) (incf eboy-clock-cycles 8))
 
     ;; ;; LD r1,r2
-    (#x7F (eboy-log (format " LD A,A")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x7F (eboy-log (format " LD A,A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#x78 (eboy-log (format " LD A,B"))
-          (setq eboy-rA eboy-rB)) ;; 4
+          (setq eboy-rA eboy-rB) (incf eboy-clock-cycles 4))
     (#x79 (eboy-log (format " LD A,C"))
-          (setq eboy-rA eboy-rC)) ;; 4
-    (#x7A (eboy-log (format " LD A,D")) (assert nil t "unimplemented opcode")) ;; 4
+          (setq eboy-rA eboy-rC) (incf eboy-clock-cycles 4))
+    (#x7A (eboy-log (format " LD A,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#x7B (eboy-log (format " LD A,E"))
-          (setq eboy-rA eboy-rE)) ;; 4
+          (setq eboy-rA eboy-rE) (incf eboy-clock-cycles 4))
     (#x7C (eboy-log (format " LD A,H"))
-          (setq eboy-rA eboy-rH)) ;; 4
-    (#x7D (eboy-log (format " LD A,L")) (assert nil t "unimplemented opcode")) ;; 4
+          (setq eboy-rA eboy-rH) (incf eboy-clock-cycles 4))
+    (#x7D (eboy-log (format " LD A,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#x7E (eboy-log (format " LD A,(HL)"))
           (setq eboy-rA (eboy-mem-read-byte (eboy-get-rHL)))
-          ) ;; 8
-    (#x40 (eboy-log (format " LD B,B")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x41 (eboy-log (format " LD B,C")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x42 (eboy-log (format " LD B,D")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x43 (eboy-log (format " LD B,E")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x44 (eboy-log (format " LD B,H")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x45 (eboy-log (format " LD B,L")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x46 (eboy-log (format " LD B,(HL)")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x48 (eboy-log (format " LD C,B")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x49 (eboy-log (format " LD C,C")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x4A (eboy-log (format " LD C,D")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x4B (eboy-log (format " LD C,E")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x4C (eboy-log (format " LD C,H")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x4D (eboy-log (format " LD C,L")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x4E (eboy-log (format " LD C,(HL)")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x50 (eboy-log (format " LD D,B")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x51 (eboy-log (format " LD D,C")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x52 (eboy-log (format " LD D,D")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x53 (eboy-log (format " LD D,E")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x54 (eboy-log (format " LD D,H")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x55 (eboy-log (format " LD D,L")) (assert nil t "unimplemented opcode")) ;; 4
+          (incf eboy-clock-cycles 8))
+    (#x40 (eboy-log (format " LD B,B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x41 (eboy-log (format " LD B,C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x42 (eboy-log (format " LD B,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x43 (eboy-log (format " LD B,E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x44 (eboy-log (format " LD B,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x45 (eboy-log (format " LD B,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x46 (eboy-log (format " LD B,(HL)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x48 (eboy-log (format " LD C,B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x49 (eboy-log (format " LD C,C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x4A (eboy-log (format " LD C,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x4B (eboy-log (format " LD C,E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x4C (eboy-log (format " LD C,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x4D (eboy-log (format " LD C,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x4E (eboy-log (format " LD C,(HL)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x50 (eboy-log (format " LD D,B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x51 (eboy-log (format " LD D,C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x52 (eboy-log (format " LD D,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x53 (eboy-log (format " LD D,E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x54 (eboy-log (format " LD D,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x55 (eboy-log (format " LD D,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#x56 (eboy-log (format " LD D,(HL)"))
           (setq eboy-rD (eboy-mem-read-byte (eboy-get-rHL)))
-          ) ;; 8
-    (#x58 (eboy-log (format " LD E,B")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x59 (eboy-log (format " LD E,C")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x5A (eboy-log (format " LD E,D")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x5B (eboy-log (format " LD E,E")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x5C (eboy-log (format " LD E,H")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x5D (eboy-log (format " LD E,L")) (assert nil t "unimplemented opcode")) ;; 4
+          (incf eboy-clock-cycles 8))
+    (#x58 (eboy-log (format " LD E,B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x59 (eboy-log (format " LD E,C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x5A (eboy-log (format " LD E,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x5B (eboy-log (format " LD E,E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x5C (eboy-log (format " LD E,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x5D (eboy-log (format " LD E,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#x5E (eboy-log (format " LD E,(HL)"))
-          (setq eboy-rE (eboy-mem-read-byte (eboy-get-rHL)))) ;; 8
-    (#x60 (eboy-log (format " LD H,B")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x61 (eboy-log (format " LD H,C")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x62 (eboy-log (format " LD H,D")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x63 (eboy-log (format " LD H,E")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x64 (eboy-log (format " LD H,H")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x65 (eboy-log (format " LD H,L")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x66 (eboy-log (format " LD H,(HL)")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x68 (eboy-log (format " LD L,B")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x69 (eboy-log (format " LD L,C")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x6A (eboy-log (format " LD L,D")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x6B (eboy-log (format " LD L,E")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x6C (eboy-log (format " LD L,H")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x6D (eboy-log (format " LD L,L")) (assert nil t "unimplemented opcode")) ;; 4
-    (#x6E (eboy-log (format " LD L,(HL)")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x70 (eboy-log (format " LD (HL),B")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x71 (eboy-log (format " LD (HL),C")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x72 (eboy-log (format " LD (HL),D")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x73 (eboy-log (format " LD (HL),E")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x74 (eboy-log (format " LD (HL),H")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x75 (eboy-log (format " LD (HL),L")) (assert nil t "unimplemented opcode")) ;; 8
+          (setq eboy-rE (eboy-mem-read-byte (eboy-get-rHL))) (incf eboy-clock-cycles 8))
+    (#x60 (eboy-log (format " LD H,B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x61 (eboy-log (format " LD H,C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x62 (eboy-log (format " LD H,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x63 (eboy-log (format " LD H,E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x64 (eboy-log (format " LD H,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x65 (eboy-log (format " LD H,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x66 (eboy-log (format " LD H,(HL)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x68 (eboy-log (format " LD L,B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x69 (eboy-log (format " LD L,C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x6A (eboy-log (format " LD L,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x6B (eboy-log (format " LD L,E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x6C (eboy-log (format " LD L,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x6D (eboy-log (format " LD L,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x6E (eboy-log (format " LD L,(HL)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x70 (eboy-log (format " LD (HL),B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x71 (eboy-log (format " LD (HL),C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x72 (eboy-log (format " LD (HL),D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x73 (eboy-log (format " LD (HL),E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x74 (eboy-log (format " LD (HL),H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x75 (eboy-log (format " LD (HL),L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
     (#x36 (eboy-log (format " LD (HL),0x%02x" (eboy-get-byte)))
           (eboy-mem-write-byte (eboy-get-rHL) (eboy-get-byte))
-          (eboy-inc-pc 1)) ;; 12
+          (eboy-inc-pc 1) (incf eboy-clock-cycles 12))
 
     ;; LD A,n
-    (#x0A (eboy-log (format " LD A,(BC)")) (assert nil t "unimplemented opcode"))
+    (#x0A (eboy-log (format " LD A,(BC)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
     (#x1A (eboy-log (format " LD A,(DE)"))
-          (setq eboy-rA (eboy-mem-read-byte (eboy-get-rDE))))
+          (setq eboy-rA (eboy-mem-read-byte (eboy-get-rDE))) (incf eboy-clock-cycles 8))
     (#xFA (eboy-log (format " LD A,(0x%02x)" (eboy-get-short)))
           (setq eboy-rA (eboy-mem-read-byte (eboy-get-short)))
-          (eboy-inc-pc 2) ;; 16
-          )
+          (eboy-inc-pc 2)
+          (incf eboy-clock-cycles 16))
     (#x3E (eboy-log (format " LD A,#0x%02x" (eboy-get-byte)))
           (setq eboy-rA (eboy-get-byte))
-          (eboy-inc-pc 1)) ;; 8
+          (eboy-inc-pc 1) (incf eboy-clock-cycles 8))
 
     ;; LD n,A - Put value A into n.
     ;; n = A,B,C,D,E,H,L,(BC),(DE),(HL),(nn)
     ;; nn = two byte immediate value. (LS byte first.)
     (#x47 (eboy-log (format " LD B,A"))
           (setq eboy-rB eboy-rA)
-          )                      ;; 4
+           (incf eboy-clock-cycles 4))
     (#x4F (eboy-log (format " LD C,A (0x%02x)" eboy-rA))
-          (setq eboy-rC eboy-rA))                      ;; 4
+          (setq eboy-rC eboy-rA) (incf eboy-clock-cycles 4))
     (#x57 (eboy-log (format " LD D,A"))
-          (setq eboy-rD eboy-rA))                      ;; 4
+          (setq eboy-rD eboy-rA) (incf eboy-clock-cycles 4))
     (#x5F (eboy-log (format " LD E,A"))
           (setq eboy-rE eboy-rA)
-          )                      ;; 4
+           (incf eboy-clock-cycles 4))
     (#x67 (eboy-log (format " LD H,A"))
-          (setq eboy-rH eboy-rA))                      ;; 4
-    (#x6F (eboy-log (format " LD L,A")) (assert nil t "unimplemented opcode"))                      ;; 4
+          (setq eboy-rH eboy-rA) (incf eboy-clock-cycles 4))
+    (#x6F (eboy-log (format " LD L,A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#x02 (eboy-log (format " LD (BC),A") (assert nil t "unimplemented opcode"))
           ;;(eboy-set-rBC eboy-rA) maybe (BC) means memory address?
-          )                   ;; 8
+           (incf eboy-clock-cycles 8))
     (#x12 (eboy-log (format " LD (DE),A"))
-          (eboy-mem-write-byte (eboy-get-rDE) eboy-rA))                   ;; 8
+          (eboy-mem-write-byte (eboy-get-rDE) eboy-rA) (incf eboy-clock-cycles 8))
     (#x77 (eboy-log (format " LD (HL),A"))
           (eboy-mem-write-byte (eboy-get-rHL) eboy-rA)
-          )                   ;; 8
+           (incf eboy-clock-cycles 8))
     (#xEA (eboy-log (format " LD (0x%0004x),A" (eboy-get-short)))
           (eboy-mem-write-byte (eboy-get-short) eboy-rA)
-          (eboy-inc-pc 2))                   ;; 16
+          (eboy-inc-pc 2) (incf eboy-clock-cycles 16))
 
     ;; Put value at address $FF00 + register C into A.
-    (#xF2 (eboy-log (format " LD A,($FF00+C)")) (assert nil t "unimplemented opcode") )
+    (#xF2 (eboy-log (format " LD A,($FF00+C)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
     ;; Put A into address $FF00 + register C.
     (#xE2 (eboy-log (format " LD ($FF00+C),A"))
           (eboy-mem-write-byte (+ #xFF00 eboy-rC) eboy-rA)
-          ) ;; 8
+           (incf eboy-clock-cycles 8))
     ;; Put value at address HL into A. Decrement HL.
-    (#x3A (eboy-log (format " LD A,(HLD)")) (assert nil t "unimplemented opcode"))
+    (#x3A (eboy-log (format " LD A,(HLD)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
     ;; Put A into memory address HL. Decrement HL.
     (#x32 (eboy-log (format " LD (HLD),A"))
           (eboy-mem-write-byte (eboy-get-rHL) eboy-rA)
           (eboy-set-rHL (1- (eboy-get-rHL)))
-          ) ;; 8
+           (incf eboy-clock-cycles 8))
     ;; Put value at address HL into A. Increment HL.
     (#x2A (eboy-log (format " LD A,(HLI)"))
           (setq eboy-rA (eboy-mem-read-byte (eboy-get-rHL)))
-          (eboy-set-rHL (1+ (eboy-get-rHL)))) ;; 8
+          (eboy-set-rHL (1+ (eboy-get-rHL))) (incf eboy-clock-cycles 8))
 
     ;; Put A into memory address HL. Increment HL.
     (#x22 (eboy-log (format " LD (HLI),A"))
           (eboy-mem-write-byte (eboy-get-rHL) eboy-rA)
           (eboy-set-rHL (1+ (eboy-get-rHL)))
-          ) ;; 8
+           (incf eboy-clock-cycles 8))
     ;; Put A into memory address $FF00+n
     (#xE0 (eboy-log (format " LD ($FF00+0x%02x),A (0x%02x)" (eboy-get-byte) eboy-rA))
           (eboy-mem-write-byte (+ #xFF00 (eboy-get-byte)) eboy-rA)
-          (eboy-inc-pc 1)) ;; 12
+          (eboy-inc-pc 1) (incf eboy-clock-cycles 12))
     ;; Put memory address $FF00+n into A.
     (#xF0 (eboy-log (format " LD A,($FF00+0x%02x) (0x%02x)" (eboy-get-byte) (eboy-mem-read-byte (+ #xFF00 (eboy-get-byte)))))
           (setq eboy-rA (eboy-mem-read-byte (+ #xFF00 (eboy-get-byte))))
-          (eboy-inc-pc 1)) ;; 12
+          (eboy-inc-pc 1) (incf eboy-clock-cycles 12))
 
     ;; 16 bit loads, nn = 16 bit immediate value
     (#x01 (eboy-log (format " LD BC, $%04x" (eboy-get-short)))
           (eboy-set-rBC (eboy-get-short))
-          (eboy-inc-pc 2)) ;; 12
+          (eboy-inc-pc 2) (incf eboy-clock-cycles 12))
     (#x11 (eboy-log (format " LD DE, $%04x" (eboy-get-short)))
           (eboy-set-rDE (eboy-get-short))
           (eboy-inc-pc 2)
-          ) ;; 12
+           (incf eboy-clock-cycles 12))
     (#x21 (eboy-log (format " LD HL, $%04x" (eboy-get-short)))
           (eboy-set-rHL (eboy-get-short))
-          (eboy-inc-pc 2)) ;; 12
+          (eboy-inc-pc 2) (incf eboy-clock-cycles 12))
     (#x31 (eboy-log (format " LD SP, $%04x" (eboy-get-short)))
           (setq eboy-sp (eboy-get-short))
-          (eboy-inc-pc 2)) ;; 12
+          (eboy-inc-pc 2) (incf eboy-clock-cycles 12))
 
-    (#xF9 (eboy-log (format " LD SP,HL")) (assert nil t "unimplemented opcode"))
+    (#xF9 (eboy-log (format " LD SP,HL")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
 
     ;; Put SP + n effective address into HL, n = one byte signed immediate value.
     ;; Flags affected:
@@ -841,26 +861,26 @@ Little Endian."
     ;; N - Reset.
     ;; H - Set or reset according to operation.
     ;; C - Set or reset according to operation.
-    (#xF8 (eboy-log (format " LDHL SP,n")) (assert nil t "unimplemented opcode"))
+    (#xF8 (eboy-log (format " LDHL SP,n")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
     ;; Put Stack Pointer (SP) at address n. n = two byte immediate address
-    (#x08 (eboy-log (format " LD (nn),SP")) (assert nil t "unimplemented opcode"))
+    (#x08 (eboy-log (format " LD (nn),SP")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 20))
 
     ;; Push register pair nn onto stack.
     ;; Decrement Stack Pointer (SP) twice.
     (#xF5 (eboy-log (format " PUSH AF"))
           (decf eboy-sp 2)
-          (eboy-mem-write-short eboy-sp (eboy-get-rpair eboy-rA (eboy-flags-to-byte flags))))                      ;; 16
+          (eboy-mem-write-short eboy-sp (eboy-get-rpair eboy-rA (eboy-flags-to-byte flags))) (incf eboy-clock-cycles 16))
     (#xC5 (eboy-log (format " PUSH BC"))
           (decf eboy-sp 2)
-          (eboy-mem-write-short eboy-sp (eboy-get-rBC)))                      ;; 16
+          (eboy-mem-write-short eboy-sp (eboy-get-rBC)) (incf eboy-clock-cycles 16))
     (#xD5 (eboy-log (format " PUSH DE"))
           (decf eboy-sp 2)
           (eboy-mem-write-short eboy-sp (eboy-get-rDE))
-          )                      ;; 16
+           (incf eboy-clock-cycles 16))
     (#xE5 (eboy-log (format " PUSH HL"))
           (decf eboy-sp 2)
           (eboy-mem-write-short eboy-sp (eboy-get-rHL))
-          )                      ;; 16
+           (incf eboy-clock-cycles 16))
 
     ;; Pop two bytes off stack into register pair nn.
     ;; Increment Stack Pointer (SP) twice.
@@ -870,19 +890,19 @@ Little Endian."
             (setq flags (eboy-byte-to-flags (logand data #x00FF)))
             )
           (incf eboy-sp 2)
-          )                      ;; 12
+           (incf eboy-clock-cycles 12))
     (#xC1 (eboy-log (format " POP BC"))
           (eboy-set-rBC (eboy-mem-read-short eboy-sp))
           (incf eboy-sp 2)
-          )                      ;; 12
+           (incf eboy-clock-cycles 12))
     (#xD1 (eboy-log (format " POP DE"))
           (eboy-set-rDE (eboy-mem-read-short eboy-sp))
           (incf eboy-sp 2)
-          )                      ;; 12
+           (incf eboy-clock-cycles 12))
     (#xE1 (eboy-log (format " POP HL"))
           (eboy-set-rHL (eboy-mem-read-short eboy-sp))
           (incf eboy-sp 2)
-          )                      ;; 12
+           (incf eboy-clock-cycles 12))
 
 
     ;; ADD A,n    -    Add n to A.
@@ -898,16 +918,16 @@ Little Endian."
             (eboy-set-flag flags :N nil)
             (eboy-set-flag flags :H (< (logand eboy-rA #xf) (logand rAold #xf)))
             (eboy-set-flag flags :C (< (logand eboy-rA #xff) (logand rAold #xff))))
-          )                      ;; 4
-    (#x80 (eboy-log (format " ADD A,B")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x81 (eboy-log (format " ADD A,C")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x82 (eboy-log (format " ADD A,D")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x83 (eboy-log (format " ADD A,E")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x84 (eboy-log (format " ADD A,H")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x85 (eboy-log (format " ADD A,L")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x86 (eboy-log (format " ADD A,(HL)")) (assert nil t "unimplemented opcode"))                   ;; 8
+           (incf eboy-clock-cycles 4))
+    (#x80 (eboy-log (format " ADD A,B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x81 (eboy-log (format " ADD A,C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x82 (eboy-log (format " ADD A,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x83 (eboy-log (format " ADD A,E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x84 (eboy-log (format " ADD A,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x85 (eboy-log (format " ADD A,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x86 (eboy-log (format " ADD A,(HL)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
     (#xC6 (eboy-log (format " ADD A,#"))
-          (eboy-add-byte eboy-rA (+ eboy-rA (eboy-get-byte))))                      ;; 8
+          (eboy-add-byte eboy-rA (+ eboy-rA (eboy-get-byte))) (incf eboy-clock-cycles 8))
 
     ;;ADC A,n    -   Add n + Carry flag to A.
     ;; Flags affected:
@@ -915,15 +935,15 @@ Little Endian."
     ;; N - Reset.
     ;; H - Set if carry from bit 3.
     ;; C - Set if carry from bit 7.
-    (#x8F (eboy-log (format " ADC A,A")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x88 (eboy-log (format " ADC A,B")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x89 (eboy-log (format " ADC A,C")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x8A (eboy-log (format " ADC A,D")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x8B (eboy-log (format " ADC A,E")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x8C (eboy-log (format " ADC A,H")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x8D (eboy-log (format " ADC A,L")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x8E (eboy-log (format " ADC A,(HL)")) (assert nil t "unimplemented opcode"))                   ;; 8
-    (#xCE (eboy-log (format " ADC A,#")) (assert nil t "unimplemented opcode"))                      ;; 8
+    (#x8F (eboy-log (format " ADC A,A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x88 (eboy-log (format " ADC A,B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x89 (eboy-log (format " ADC A,C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x8A (eboy-log (format " ADC A,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x8B (eboy-log (format " ADC A,E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x8C (eboy-log (format " ADC A,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x8D (eboy-log (format " ADC A,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x8E (eboy-log (format " ADC A,(HL)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#xCE (eboy-log (format " ADC A,#")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
 
     ;; SUB n - Subtract n from A.
     ;; Flags affected:
@@ -931,7 +951,7 @@ Little Endian."
     ;; N - Set.
     ;; H - Set if no borrow from bit 4.
     ;; C - Set if no borrow.
-    (#x97 (eboy-log (format " SUB A")) (assert nil t "unimplemented opcode"))                        ;; 4
+    (#x97 (eboy-log (format " SUB A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#x90 (eboy-log (format " SUB B"))
           (let ((oldval eboy-rA))
             (eboy-add-byte eboy-rA (* -1 eboy-rB))
@@ -940,14 +960,14 @@ Little Endian."
             (eboy-set-flag flags :H (> (logand eboy-rA #x0F) (logand oldval #x0F)))
             (eboy-set-flag flags :C (> (logand eboy-rA #xFF) (logand oldval #xFF)))
             )
-          )                        ;; 4
-    (#x91 (eboy-log (format " SUB C")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#x92 (eboy-log (format " SUB D")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#x93 (eboy-log (format " SUB E")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#x94 (eboy-log (format " SUB H")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#x95 (eboy-log (format " SUB L")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#x96 (eboy-log (format " SUB (HL)")) (assert nil t "unimplemented opcode"))                     ;; 8
-    (#xD6 (eboy-log (format " SUB #")) (assert nil t "unimplemented opcode"))                        ;; 8
+           (incf eboy-clock-cycles 4))
+    (#x91 (eboy-log (format " SUB C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x92 (eboy-log (format " SUB D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x93 (eboy-log (format " SUB E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x94 (eboy-log (format " SUB H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x95 (eboy-log (format " SUB L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x96 (eboy-log (format " SUB (HL)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#xD6 (eboy-log (format " SUB #")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
 
     ;; SBC A,n - Subtract n + Carry flag from A.
     ;; Flags affected:
@@ -955,15 +975,15 @@ Little Endian."
     ;; N - Set.
     ;; H - Set if no borrow from bit 4.
     ;; C - Set if no borrow.
-    (#x9F (eboy-log (format " SBC A,A")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x98 (eboy-log (format " SBC A,B")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x99 (eboy-log (format " SBC A,C")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x9A (eboy-log (format " SBC A,D")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x9B (eboy-log (format " SBC A,E")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x9C (eboy-log (format " SBC A,H")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x9D (eboy-log (format " SBC A,L")) (assert nil t "unimplemented opcode"))                      ;; 4
-    (#x9E (eboy-log (format " SBC A,(HL)")) (assert nil t "unimplemented opcode"))                   ;; 8
-    ;;(?? (eboy-log (format " SBC A,#")))                      ;; ?
+    (#x9F (eboy-log (format " SBC A,A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x98 (eboy-log (format " SBC A,B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x99 (eboy-log (format " SBC A,C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x9A (eboy-log (format " SBC A,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x9B (eboy-log (format " SBC A,E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x9C (eboy-log (format " SBC A,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x9D (eboy-log (format " SBC A,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x9E (eboy-log (format " SBC A,(HL)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    ;;(?? (eboy-log (format " SBC A,#")) (incf eboy-clock-cycles ))?
 
     ;; AND n - Logically AND n with A, result in A.
     ;; Flags affected:
@@ -976,20 +996,20 @@ Little Endian."
           (eboy-set-flag flags :Z (zerop eboy-rA))
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H t)
-          (eboy-set-flag flags :C nil))                        ;; 4
-    (#xA0 (eboy-log (format " AND B")) (assert nil t "unimplemented opcode"))                        ;; 4
+          (eboy-set-flag flags :C nil) (incf eboy-clock-cycles 4))
+    (#xA0 (eboy-log (format " AND B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#xA1 (eboy-log (format " AND C"))
           (setq eboy-rA (logand eboy-rA eboy-rC))
           (eboy-set-flag flags :Z (zerop eboy-rA))
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H t)
           (eboy-set-flag flags :C nil)
-          )                        ;; 4
-    (#xA2 (eboy-log (format " AND D")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#xA3 (eboy-log (format " AND E")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#xA4 (eboy-log (format " AND H")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#xA5 (eboy-log (format " AND L")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#xA6 (eboy-log (format " AND (HL)")) (assert nil t "unimplemented opcode"))                     ;; 8
+           (incf eboy-clock-cycles 4))
+    (#xA2 (eboy-log (format " AND D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xA3 (eboy-log (format " AND E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xA4 (eboy-log (format " AND H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xA5 (eboy-log (format " AND L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xA6 (eboy-log (format " AND (HL)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
     (#xE6 (eboy-log (format " AND # (#%02x) " (eboy-get-byte)))
           (setq eboy-rA (logand eboy-rA (eboy-get-byte)))
           (eboy-set-flag flags :Z (zerop eboy-rA))
@@ -997,7 +1017,7 @@ Little Endian."
           (eboy-set-flag flags :H t)
           (eboy-set-flag flags :C nil)
           (eboy-inc-pc 1)
-          )                        ;; 8
+           (incf eboy-clock-cycles 8))
 
     ;; OR n - Logical OR n with register A, result in A.
     ;; Flags affected:
@@ -1005,26 +1025,26 @@ Little Endian."
     ;; N - Reset.
     ;; H - Reset.
     ;; C - Reset.
-    (#xB7 (eboy-log (format " OR A")) (assert nil t "unimplemented opcode"))                        ;; 4
+    (#xB7 (eboy-log (format " OR A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#xB0 (eboy-log (format " OR B"))
           (setq eboy-rA (logior eboy-rB eboy-rA))
           (eboy-set-flag flags :Z (zerop eboy-rA))
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H nil)
-          (eboy-set-flag flags :C nil))                        ;; 4
+          (eboy-set-flag flags :C nil) (incf eboy-clock-cycles 4))
     (#xB1 (eboy-log (format " OR C"))
           (setq eboy-rA (logior eboy-rC eboy-rA))
           (eboy-set-flag flags :Z (zerop eboy-rA))
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H nil)
           (eboy-set-flag flags :C nil)
-          )                        ;; 4
-    (#xB2 (eboy-log (format " OR D")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#xB3 (eboy-log (format " OR E")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#xB4 (eboy-log (format " OR H")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#xB5 (eboy-log (format " OR L")) (assert nil t "unimplemented opcode"))                        ;; 4
-    (#xB6 (eboy-log (format " OR (HL)")) (assert nil t "unimplemented opcode"))                     ;; 8
-    (#xF6 (eboy-log (format " OR #")) (assert nil t "unimplemented opcode"))                        ;; 8
+           (incf eboy-clock-cycles 4))
+    (#xB2 (eboy-log (format " OR D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xB3 (eboy-log (format " OR E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xB4 (eboy-log (format " OR H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xB5 (eboy-log (format " OR L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xB6 (eboy-log (format " OR (HL)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#xF6 (eboy-log (format " OR #")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
 
     ;; XOR n - Logical exclusive OR n with register A, result in A.
     ;; Flags affected:
@@ -1038,8 +1058,8 @@ Little Endian."
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H nil)
           (eboy-set-flag flags :C nil)
-          ) ;; 4
-    (#xA8 (eboy-log (format " XOR B ")) (assert nil t "unimplemented opcode")) ;; 4
+           (incf eboy-clock-cycles 4))
+    (#xA8 (eboy-log (format " XOR B ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#xA9 (eboy-log (format " XOR C "))
           (setq eboy-rA (logxor eboy-rC eboy-rA))
           (eboy-set-flag flags :Z (zerop eboy-rA))
@@ -1047,13 +1067,13 @@ Little Endian."
           (eboy-set-flag flags :H nil)
           (eboy-set-flag flags :C nil)
 
-          ) ;; 4
-    (#xAA (eboy-log (format " XOR D ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#xAB (eboy-log (format " XOR E ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#xAC (eboy-log (format " XOR H ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#xAD (eboy-log (format " XOR L ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#xAE (eboy-log (format " XOR (HL) ")) (assert nil t "unimplemented opcode")) ;; 8
-    (#xEE (eboy-log (format " XOR * ")) (assert nil t "unimplemented opcode")) ;; 8
+           (incf eboy-clock-cycles 4))
+    (#xAA (eboy-log (format " XOR D ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xAB (eboy-log (format " XOR E ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xAC (eboy-log (format " XOR H ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xAD (eboy-log (format " XOR L ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xAE (eboy-log (format " XOR (HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#xEE (eboy-log (format " XOR * ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
 
     ;; CP n - Compare A with n. This is basically an A - n subtraction instruction but the results are thrown away.
     ;; Flags affected:
@@ -1061,14 +1081,14 @@ Little Endian."
     ;; N - Set.
     ;; H - Set if no borrow from bit 4.
     ;; C - Set for no borrow. (Set if A < n.)
-    (#xBF (eboy-log (format " CP A ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#xB8 (eboy-log (format " CP B ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#xB9 (eboy-log (format " CP C ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#xBA (eboy-log (format " CP D ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#xBB (eboy-log (format " CP E ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#xBC (eboy-log (format " CP H ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#xBD (eboy-log (format " CP L ")) (assert nil t "unimplemented opcode")) ;; 4
-    (#xBE (eboy-log (format " CP (HL) ")) (assert nil t "unimplemented opcode")) ;; 8
+    (#xBF (eboy-log (format " CP A ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xB8 (eboy-log (format " CP B ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xB9 (eboy-log (format " CP C ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xBA (eboy-log (format " CP D ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xBB (eboy-log (format " CP E ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xBC (eboy-log (format " CP H ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xBD (eboy-log (format " CP L ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#xBE (eboy-log (format " CP (HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
     (#xFE (eboy-log (format " CP # (0x%02x)" (eboy-get-byte)))
           (let ((n (eboy-get-byte)))
             (eboy-set-flag flags :Z (= eboy-rA n))
@@ -1076,7 +1096,7 @@ Little Endian."
             (eboy-set-flag flags :H (> (logand (- eboy-rA n) #x0F) (logand eboy-rA #x0F)))
             (eboy-set-flag flags :C (< eboy-rA n))
             (eboy-inc-pc 1)
-            )) ;; 8
+            ) (incf eboy-clock-cycles 8))
 
     ;; INC n - Increment register n.
     ;; Flags affected:
@@ -1089,31 +1109,31 @@ Little Endian."
           (eboy-set-flag flags :Z (zerop eboy-rA))
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H (< (logand eboy-rA #xf) (logand (1- eboy-rA) #xf)))
-          ) ;; 4
+           (incf eboy-clock-cycles 4))
     (#x04 (eboy-log (format " INC B "))
           (eboy-add-byte eboy-rB 1)
           (eboy-set-flag flags :Z (zerop eboy-rB))
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H (< (logand eboy-rB #xf) (logand (1- eboy-rB) #xf)))
-          ) ;; 4
+           (incf eboy-clock-cycles 4))
     (#x0C (eboy-log (format " INC C "))
           (eboy-add-byte eboy-rC 1)
           (eboy-set-flag flags :Z (zerop eboy-rC))
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H (< (logand eboy-rC #xf) (logand (1- eboy-rC) #xf)))
-          ) ;; 4
-    (#x14 (eboy-log (format " INC D ")) (assert nil t "unimplemented opcode")) ;; 4
+           (incf eboy-clock-cycles 4))
+    (#x14 (eboy-log (format " INC D ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#x1C (eboy-log (format " INC E "))
           (eboy-set-flag flags :Z (zerop eboy-rE))
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H (< (logand eboy-rE #xf) (logand (1- eboy-rE) #xf)))
-          ) ;; 4
+           (incf eboy-clock-cycles 4))
     (#x24 (eboy-log (format " INC H "))
           (eboy-set-flag flags :Z (zerop eboy-rH))
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H (< (logand eboy-rH #xf) (logand (1- eboy-rH) #xf)))
-          ) ;; 4
-    (#x2C (eboy-log (format " INC L ")) (assert nil t "unimplemented opcode")) ;; 4
+           (incf eboy-clock-cycles 4))
+    (#x2C (eboy-log (format " INC L ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#x34 (eboy-log (format " INC (HL)  "))
           (let* ((hl (eboy-get-rHL))
                 (data (eboy-mem-read-byte hl)))
@@ -1123,7 +1143,7 @@ Little Endian."
             (eboy-set-flag flags :N nil)
             (eboy-set-flag flags :H (< (logand data #xf) (logand (1- data) #xf)))
             )
-          );; 12
+          (incf eboy-clock-cycles 12))
 
     ;; DEC n - Decrement register n.
     ;; Flags affected:
@@ -1132,16 +1152,15 @@ Little Endian."
     ;; H - Set if no borrow from bit 4.
     ;; C - Not affected.
     (#x3D (eboy-log (format " DEC A "))
-          (eboy-dec eboy-rA flags)) ;; 4
+          (eboy-dec eboy-rA flags) (incf eboy-clock-cycles 4))
     (#x05 (eboy-log (format " DEC B (before dec %d)" eboy-rB))
-          (eboy-dec eboy-rB flags)
-          ) ;; 4
-    (#x0D (eboy-log (format " DEC C ")) (eboy-dec eboy-rC flags)) ;; 4
-    (#x15 (eboy-log (format " DEC D ")) (eboy-dec eboy-rD flags)) ;; 4
-    (#x1D (eboy-log (format " DEC E ")) (eboy-dec eboy-rE flags)) ;; 4
-    (#x25 (eboy-log (format " DEC H ")) (eboy-dec eboy-rH flags)) ;; 4
-    (#x2D (eboy-log (format " DEC L ")) (eboy-dec eboy-rL flags)) ;; 4
-    (#x35 (eboy-log (format " DEC (HL)  ")) (assert nil t "unimplemented opcode"));; 12
+          (eboy-dec eboy-rB flags) (incf eboy-clock-cycles 4))
+    (#x0D (eboy-log (format " DEC C ")) (eboy-dec eboy-rC flags) (incf eboy-clock-cycles 4))
+    (#x15 (eboy-log (format " DEC D ")) (eboy-dec eboy-rD flags) (incf eboy-clock-cycles 4))
+    (#x1D (eboy-log (format " DEC E ")) (eboy-dec eboy-rE flags) (incf eboy-clock-cycles 4))
+    (#x25 (eboy-log (format " DEC H ")) (eboy-dec eboy-rH flags) (incf eboy-clock-cycles 4))
+    (#x2D (eboy-log (format " DEC L ")) (eboy-dec eboy-rL flags) (incf eboy-clock-cycles 4))
+    (#x35 (eboy-log (format " DEC (HL)  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
 
       ;;; 16-Bit Arithmetic
     ;;
@@ -1151,16 +1170,16 @@ Little Endian."
     ;; N - Reset.
     ;; H - Set if carry from bit 11.
     ;; C - Set if carry from bit 15.
-    (#x09 (eboy-log (format " ADD HL,BC ")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x09 (eboy-log (format " ADD HL,BC ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
     (#x19 (eboy-log (format " ADD HL,DE "))
           (let ((hl (eboy-get-rHL)))
             (eboy-set-rHL (+ hl (eboy-get-rDE)))
             (eboy-set-flag flags :N nil)
             (eboy-set-flag flags :H (< (logand (eboy-get-rHL) #xfff) (logand hl #xfff)))
             (eboy-set-flag flags :C (< (logand (eboy-get-rHL) #xffff) (logand hl #xffff))))
-          ) ;; 8
-    (#x29 (eboy-log (format " ADD HL,HL ")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x39 (eboy-log (format " ADD HL,SP ")) (assert nil t "unimplemented opcode")) ;; 8
+          (incf eboy-clock-cycles 8))
+    (#x29 (eboy-log (format " ADD HL,HL ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x39 (eboy-log (format " ADD HL,SP ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
 
     ;; ADD SP,n - Add n to Stack Pointer (SP).
     ;; Flags affected:
@@ -1169,26 +1188,25 @@ Little Endian."
     ;; N - Reset.
     ;; H - Set or reset according to operation.
     ;; C - Set or reset according to operation.
-    (#xE8 (eboy-log (format " ADD SP,#  ")) (assert nil t "unimplemented opcode"));; 16
+    (#xE8 (eboy-log (format " ADD SP,#  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
 
     ;; INC nn - Increment register nn.
     ;; Flags affected: None
-    (#x03 (eboy-log (format " INC BC ")) (assert nil t "unimplemented opcode")) ;; 8
+    (#x03 (eboy-log (format " INC BC ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
     (#x13 (eboy-log (format " INC DE "))
-          (eboy-set-rDE (1+ (eboy-get-rDE)))) ;; 8
+          (eboy-set-rDE (1+ (eboy-get-rDE))) (incf eboy-clock-cycles 8))
     (#x23 (eboy-log (format " INC HL "))
-          (eboy-set-rHL (1+ (eboy-get-rHL)))
-          ) ;; 8
-    (#x33 (eboy-log (format " INC SP ")) (assert nil t "unimplemented opcode")) ;; 8
+          (eboy-set-rHL (1+ (eboy-get-rHL))) (incf eboy-clock-cycles 8))
+    (#x33 (eboy-log (format " INC SP ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
 
     ;; DEC nn - Decrement register nn.
     ;; Flags affected:
     ;; None.
     (#x0B (eboy-log (format " DEC BC "))
-          (eboy-set-rBC (1- (eboy-get-rBC)))) ;; 8
-    (#x1B (eboy-log (format " DEC DE ")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x2B (eboy-log (format " DEC HL ")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x3B (eboy-log (format " DEC SP ")) (assert nil t "unimplemented opcode")) ;; 8
+          (eboy-set-rBC (1- (eboy-get-rBC))) (incf eboy-clock-cycles 8))
+    (#x1B (eboy-log (format " DEC DE ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x2B (eboy-log (format " DEC HL ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x3B (eboy-log (format " DEC SP ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
 
       ;;; Miscellaneous
 
@@ -1201,7 +1219,7 @@ Little Endian."
     ;; N - Not affected.
     ;; H - Reset.
     ;; C - Set or reset according to operation.
-    (#x27 (eboy-log (format " DAA -/- ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x27 (eboy-log (format " DAA -/- ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
 
     ;; CPL - Complement A register. (Flip all bits.)
     ;; Flags affected:
@@ -1213,7 +1231,7 @@ Little Endian."
           (setq eboy-rA (logand #xFF (lognot eboy-rA)))
           (eboy-set-flag flags :N t)
           (eboy-set-flag flags :H t)
-          ) ;; 4
+          (incf eboy-clock-cycles 4))
 
     ;; CCF - Complement carry flag.
     ;; If C flag is set, then reset it.
@@ -1223,7 +1241,7 @@ Little Endian."
     ;; N - Reset.
     ;; H - Reset.
     ;; C - Complemented.
-    (#x3F (eboy-log (format " CCF -/- ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x3F (eboy-log (format " CCF -/- ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
 
     ;; SCF - Set Carry flag.
     ;; Flags affected:
@@ -1231,23 +1249,23 @@ Little Endian."
     ;; N - Reset.
     ;; H - Reset.
     ;; C - Set.
-    (#x37 (eboy-log (format " SCF -/- ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x37 (eboy-log (format " SCF -/- ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
 
     ;; HALT - Power down CPU until an interrupt occurs. Use this when ever possible to reduce energy consumption.
-    (#x76 (eboy-log (format " HALT -/- ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x76 (eboy-log (format " HALT -/- ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
 
     ;; STOP - Halt CPU & LCD display until button pressed.
-    (#x10 (eboy-log (format " STOP -/- 10 ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x10 (eboy-log (format " STOP -/- 10 ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     ;; This is a 2 byte opcode: 0x10 00
 
     ;; DI - This instruction disables interrupts but not immediately. Interrupts are disabled after instruction after DI is executed.
     ;; Flags affected:
     ;; None.
-    (#xF3 (eboy-log (format " DI -/- ")) (setq eboy-interrupt-master-enbl nil)) ;; 4
+    (#xF3 (eboy-log (format " DI -/- ")) (setq eboy-interrupt-master-enbl nil) (incf eboy-clock-cycles 4))
     ;; EI - Enable interrupts. This intruction enables interrupts but not immediately. Interrupts are enabled after instruction after EI is executed.
     ;; Flags affected:
     ;; None.
-    (#xFB (eboy-log (format " EI -/- ")) (setq eboy-interrupt-master-enbl t)) ;; 4
+    (#xFB (eboy-log (format " EI -/- ")) (setq eboy-interrupt-master-enbl t) (incf eboy-clock-cycles 4))
 
       ;;; Rotates & Shift
 
@@ -1257,7 +1275,7 @@ Little Endian."
     ;; N - Reset.
     ;; H - Reset.
     ;; C - Contains old bit 7 data.
-    (#x07 (eboy-log (format " RLCA -/- ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x07 (eboy-log (format " RLCA -/- ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
 
     ;; RLA - Rotate A left through Carry flag.
     ;; Flags affected:
@@ -1273,7 +1291,7 @@ Little Endian."
             (eboy-set-flag flags :H nil)
             (eboy-set-flag flags :C c)
             )
-          ) ;; 4
+           (incf eboy-clock-cycles 4))
 
     ;; RRCA - Rotate A right. Old bit 0 to Carry flag.
     ;; Flags affected:
@@ -1286,7 +1304,7 @@ Little Endian."
           (eboy-set-flag flags :C (= (logand eboy-rA #x01) 1))
           (setq eboy-rA (logand (logior (lsh eboy-rA 1) (lsh eboy-rA -7)) #xff))
           (eboy-set-flag flags :Z (= eboy-rA 0))
-          ) ;; 4
+          (incf eboy-clock-cycles 4))
 
     ;; RRA - Rotate A right through Carry flag.
     ;; Flags affected:
@@ -1294,7 +1312,7 @@ Little Endian."
     ;; N - Reset.
     ;; H - Reset.
     ;; C - Contains old bit 0 data.
-    (#x1F (eboy-log (format " RRA -/- ")) (assert nil t "unimplemented opcode")) ;; 4
+    (#x1F (eboy-log (format " RRA -/- ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
 
     ;; Extended instructions
     (#xCB (eboy-log (format " 2byte opcode CB: 0x%02x" (eboy-get-byte)))
@@ -1313,14 +1331,14 @@ Little Endian."
                     (eboy-set-flag flags :N nil)
                     (eboy-set-flag flags :H nil)
                     (eboy-set-flag flags :C nil)
-                    ) ;; 8
-              (#x30 (eboy-log (format " SWAP B")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x31 (eboy-log (format " SWAP C")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x32 (eboy-log (format " SWAP D")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x33 (eboy-log (format " SWAP E")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x34 (eboy-log (format " SWAP H")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x35 (eboy-log (format " SWAP L")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x36 (eboy-log (format " SWAP (HL) ")) (assert nil t "unimplemented opcode"));; 16
+                    (incf eboy-clock-cycles 8))
+              (#x30 (eboy-log (format " SWAP B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x31 (eboy-log (format " SWAP C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x32 (eboy-log (format " SWAP D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x33 (eboy-log (format " SWAP E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x34 (eboy-log (format " SWAP H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x35 (eboy-log (format " SWAP L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x36 (eboy-log (format " SWAP (HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
 
               ;; RLC n - Rotate n left. Old bit 7 to Carry flag.
               ;; Flags affected:
@@ -1328,14 +1346,14 @@ Little Endian."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 7 data.
-              (#x07 (eboy-log (format " RLC A")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x00 (eboy-log (format " RLC B")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x01 (eboy-log (format " RLC C")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x02 (eboy-log (format " RLC D")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x03 (eboy-log (format " RLC E")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x04 (eboy-log (format " RLC H")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x05 (eboy-log (format " RLC L")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x06 (eboy-log (format " RLC (HL) ")) (assert nil t "unimplemented opcode"));; 16
+              (#x07 (eboy-log (format " RLC A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x00 (eboy-log (format " RLC B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x01 (eboy-log (format " RLC C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x02 (eboy-log (format " RLC D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x03 (eboy-log (format " RLC E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x04 (eboy-log (format " RLC H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x05 (eboy-log (format " RLC L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x06 (eboy-log (format " RLC (HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
 
               ;; RL n - Rotate n left through Carry flag.
               ;; Flags affected:
@@ -1343,8 +1361,8 @@ Little Endian."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 7 data.
-              (#x17 (eboy-log (format " RL A")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x10 (eboy-log (format " RL B")) (assert nil t "unimplemented opcode")) ;; 8
+              (#x17 (eboy-log (format " RL A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x10 (eboy-log (format " RL B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
               (#x11 (eboy-log (format " RL C"))
                     (let ((c (= (lsh eboy-rC -7) #x01)))
                       (setq eboy-rC (logior (lsh eboy-rC 1) (if (eboy-get-flag flags :C) #x01 #x00)))
@@ -1353,12 +1371,12 @@ Little Endian."
                       (eboy-set-flag flags :H nil)
                       (eboy-set-flag flags :C c)
                       )
-                    ) ;; 8
-              (#x12 (eboy-log (format " RL D")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x13 (eboy-log (format " RL E")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x14 (eboy-log (format " RL H")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x15 (eboy-log (format " RL L")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x16 (eboy-log (format " RL (HL) ")) (assert nil t "unimplemented opcode"));; 16
+                     (incf eboy-clock-cycles 8))
+              (#x12 (eboy-log (format " RL D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x13 (eboy-log (format " RL E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x14 (eboy-log (format " RL H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x15 (eboy-log (format " RL L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x16 (eboy-log (format " RL (HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
 
               ;; RRC n -  Rotate n right. Old bit 0 to Carry flag.
               ;; Flags affected:
@@ -1366,14 +1384,14 @@ Little Endian."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 0 data.
-              (#x0F (eboy-log (format " RRC A")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x08 (eboy-log (format " RRC B")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x09 (eboy-log (format " RRC C")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x0A (eboy-log (format " RRC D")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x0B (eboy-log (format " RRC E")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x0C (eboy-log (format " RRC H")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x0D (eboy-log (format " RRC L")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x0E (eboy-log (format " RRC (HL) ")) (assert nil t "unimplemented opcode"));; 16
+              (#x0F (eboy-log (format " RRC A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x08 (eboy-log (format " RRC B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x09 (eboy-log (format " RRC C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x0A (eboy-log (format " RRC D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x0B (eboy-log (format " RRC E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x0C (eboy-log (format " RRC H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x0D (eboy-log (format " RRC L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x0E (eboy-log (format " RRC (HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
 
               ;; RR n - Rotate n right through Carry flag.
               ;; Flags affected:
@@ -1381,14 +1399,14 @@ Little Endian."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 0 data.
-              (#x1F (eboy-log (format " RR A")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x18 (eboy-log (format " RR B")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x19 (eboy-log (format " RR C")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x1A (eboy-log (format " RR D")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x1B (eboy-log (format " RR E")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x1C (eboy-log (format " RR H")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x1D (eboy-log (format " RR L")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x1E (eboy-log (format " RR (HL) ")) (assert nil t "unimplemented opcode"));; 16
+              (#x1F (eboy-log (format " RR A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x18 (eboy-log (format " RR B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x19 (eboy-log (format " RR C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x1A (eboy-log (format " RR D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x1B (eboy-log (format " RR E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x1C (eboy-log (format " RR H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x1D (eboy-log (format " RR L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x1E (eboy-log (format " RR (HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
 
               ;; SLA n - Shift n left into Carry. LSB of n set to 0.
               ;; Flags affected:
@@ -1396,14 +1414,14 @@ Little Endian."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 7 data.
-              (#x27 (eboy-log (format " SLA A")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x20 (eboy-log (format " SLA B")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x21 (eboy-log (format " SLA C")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x22 (eboy-log (format " SLA D")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x23 (eboy-log (format " SLA E")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x24 (eboy-log (format " SLA H")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x25 (eboy-log (format " SLA L")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x26 (eboy-log (format " SLA (HL) ")) (assert nil t "unimplemented opcode"));; 16
+              (#x27 (eboy-log (format " SLA A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x20 (eboy-log (format " SLA B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x21 (eboy-log (format " SLA C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x22 (eboy-log (format " SLA D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x23 (eboy-log (format " SLA E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x24 (eboy-log (format " SLA H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x25 (eboy-log (format " SLA L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x26 (eboy-log (format " SLA (HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
 
               ;; SRA n - Shift n right into Carry. MSB doesn't change.
               ;; Flags affected:
@@ -1411,14 +1429,14 @@ Little Endian."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 0 data.
-              (#x2F (eboy-log (format " SRA A")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x28 (eboy-log (format " SRA B")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x29 (eboy-log (format " SRA C")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x2A (eboy-log (format " SRA D")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x2B (eboy-log (format " SRA E")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x2C (eboy-log (format " SRA H")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x2D (eboy-log (format " SRA L")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x2E (eboy-log (format " SRA (HL) ")) (assert nil t "unimplemented opcode"));; 16
+              (#x2F (eboy-log (format " SRA A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x28 (eboy-log (format " SRA B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x29 (eboy-log (format " SRA C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x2A (eboy-log (format " SRA D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x2B (eboy-log (format " SRA E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x2C (eboy-log (format " SRA H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x2D (eboy-log (format " SRA L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x2E (eboy-log (format " SRA (HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
 
               ;; SRL n - Shift n right into Carry. MSB set to 0.
               ;; Flags affected:
@@ -1426,14 +1444,14 @@ Little Endian."
               ;; N - Reset.
               ;; H - Reset.
               ;; C - Contains old bit 0 data.
-              (#x3F (eboy-log (format " SRL A")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x38 (eboy-log (format " SRL B")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x39 (eboy-log (format " SRL C")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x3A (eboy-log (format " SRL D")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x3B (eboy-log (format " SRL E")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x3C (eboy-log (format " SRL H")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x3D (eboy-log (format " SRL L")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x3E (eboy-log (format " SRL (HL) ")) (assert nil t "unimplemented opcode"));; 16
+              (#x3F (eboy-log (format " SRL A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x38 (eboy-log (format " SRL B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x39 (eboy-log (format " SRL C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x3A (eboy-log (format " SRL D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x3B (eboy-log (format " SRL E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x3C (eboy-log (format " SRL H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x3D (eboy-log (format " SRL L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x3E (eboy-log (format " SRL (HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
 
               ;; Bit Opcodes - Test bit b in register r.
               ;; Flags affected:
@@ -1441,53 +1459,52 @@ Little Endian."
               ;; N - Reset.
               ;; H - Set.
               ;; C - Not affected.
-              (#x47 (eboy-log (format " BIT b,A")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x40 (eboy-log (format " BIT b,B")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x41 (eboy-log (format " BIT b,C")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x42 (eboy-log (format " BIT b,D")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x43 (eboy-log (format " BIT b,E")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x44 (eboy-log (format " BIT b,H")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x45 (eboy-log (format " BIT b,L")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x46 (eboy-log (format " BIT b,(HL) ")) (assert nil t "unimplemented opcode"));; 16
+              (#x47 (eboy-log (format " BIT b,A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x40 (eboy-log (format " BIT b,B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x41 (eboy-log (format " BIT b,C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x42 (eboy-log (format " BIT b,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x43 (eboy-log (format " BIT b,E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x44 (eboy-log (format " BIT b,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x45 (eboy-log (format " BIT b,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x46 (eboy-log (format " BIT b,(HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
 
               (#x7C (eboy-log (format " BIT 7,H"))
                     (eboy-set-flag flags :Z (not (= (logand eboy-rH #x80) #x80)))
                     (eboy-set-flag flags :N nil)
                     (eboy-set-flag flags :H t)
-                    ) ;; 8
+                    (incf eboy-clock-cycles 8))
 
               ;; SET b,r - Set bit b in register r.
               ;; Flags affected:
               ;; None.
-              (#xC7 (eboy-log (format " SET b,A")) (assert nil t "unimplemented opcode")) ;; 8
-              (#xC0 (eboy-log (format " SET b,B")) (assert nil t "unimplemented opcode")) ;; 8
-              (#xC1 (eboy-log (format " SET b,C")) (assert nil t "unimplemented opcode")) ;; 8
-              (#xC2 (eboy-log (format " SET b,D")) (assert nil t "unimplemented opcode")) ;; 8
-              (#xC3 (eboy-log (format " SET b,E")) (assert nil t "unimplemented opcode")) ;; 8
-              (#xC4 (eboy-log (format " SET b,H")) (assert nil t "unimplemented opcode")) ;; 8
-              (#xC5 (eboy-log (format " SET b,L")) (assert nil t "unimplemented opcode")) ;; 8
-              (#xC6 (eboy-log (format " SET b,(HL) ")) (assert nil t "unimplemented opcode"));; 16
+              (#xC7 (eboy-log (format " SET b,A")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#xC0 (eboy-log (format " SET b,B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#xC1 (eboy-log (format " SET b,C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#xC2 (eboy-log (format " SET b,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#xC3 (eboy-log (format " SET b,E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#xC4 (eboy-log (format " SET b,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#xC5 (eboy-log (format " SET b,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#xC6 (eboy-log (format " SET b,(HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
 
               ;; RES b,r - Reset bit b in register r.
               ;; Flags affected:
               ;; None.
-              (#x87 (eboy-log (format " RES b,A")) (setq eboy-rA (logand eboy-rA #xFE)) ) ;; 8
-              (#x80 (eboy-log (format " RES b,B")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x81 (eboy-log (format " RES b,C")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x82 (eboy-log (format " RES b,D")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x83 (eboy-log (format " RES b,E")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x84 (eboy-log (format " RES b,H")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x85 (eboy-log (format " RES b,L")) (assert nil t "unimplemented opcode")) ;; 8
-              (#x86 (eboy-log (format " RES b,(HL) ")) (assert nil t "unimplemented opcode"));; 16
+              (#x87 (eboy-log (format " RES b,A")) (setq eboy-rA (logand eboy-rA #xFE))  (incf eboy-clock-cycles 8))
+              (#x80 (eboy-log (format " RES b,B")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x81 (eboy-log (format " RES b,C")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x82 (eboy-log (format " RES b,D")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x83 (eboy-log (format " RES b,E")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x84 (eboy-log (format " RES b,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x85 (eboy-log (format " RES b,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (#x86 (eboy-log (format " RES b,(HL) ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
               (otherwise (eboy-log (assert nil t (format "Unimplemented BC opcode 0x%x" opcode))))
               )))
 
 
     ;; JP nn - Jump to address nn.
-    (#xC3 (eboy-log (format " JP $%04x" (eboy-get-short))) ;; 12
-          (setq eboy-pc (1- (eboy-get-short))) ;; Compensate for the pc +1 that is done with each instruction.
-
-          )
+    (#xC3 (eboy-log (format " JP $%04x" (eboy-get-short)) )
+          (setq eboy-pc (1- (eboy-get-short))) ;;Compensate for the pc +1 that is done with each instruction.
+          (incf eboy-clock-cycles 12))
 
     ;; JP cc,nn - Jump to address n if following condition is true:
     ;;   cc = NZ, Jump if Z flag is reset.
@@ -1495,24 +1512,24 @@ Little Endian."
     ;;   cc = NC, Jump if C flag is reset.
     ;;   cc = C, Jump if C flag is set.
     ;; nn = two byte immediate value. (LS byte first.)
-    (#xC2 (eboy-log (format " JP NZ,nn  ")) (assert nil t "unimplemented opcode"));; 12
+    (#xC2 (eboy-log (format " JP NZ,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
     (#xCA (eboy-log (format " JP Z,$%04x" (eboy-get-short)))
           (if (eboy-get-flag flags :Z)
               (setq eboy-pc (1- (eboy-get-short))) ;; Compensate for the pc +1 that is done with each instruction.
             (eboy-inc-pc 2))
-          );; 12
-    (#xD2 (eboy-log (format " JP NC,nn  ")) (assert nil t "unimplemented opcode"));; 12
-    (#xDA (eboy-log (format " JP C,nn  ")) (assert nil t "unimplemented opcode"));; 12
+           (incf eboy-clock-cycles 12))
+    (#xD2 (eboy-log (format " JP NC,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
+    (#xDA (eboy-log (format " JP C,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
 
     ;; JP (HL) - Jump to address contained in HL.
     (#xE9 (eboy-log (format " JP (HL) "))
-          (setq eboy-pc (1- (eboy-get-rHL)))) ;; 4
+          (setq eboy-pc (1- (eboy-get-rHL))) (incf eboy-clock-cycles 4))
 
     ;; JR n - Add n to current address and jump to it.
     ;; nn = one byte signed immediate value
     (#x18 (eboy-log (format " JR %02d " (eboy-byte-to-signed (eboy-get-byte))))
           (setq eboy-pc (+ eboy-pc (eboy-byte-to-signed (eboy-get-byte)) 1))
-          ) ;; 8
+          (incf eboy-clock-cycles 8))
 
     ;; JR cc,n - If following condition is true then add n to current address and jump to it:
     ;;  n = one byte signed immediate value
@@ -1523,13 +1540,13 @@ Little Endian."
     (#x20 (eboy-log (format " JR NZ,* (%02d)" (eboy-byte-to-signed (eboy-get-byte))))
           (if (null (eboy-get-flag flags :Z))
               (setq eboy-pc (+ eboy-pc (eboy-byte-to-signed (eboy-get-byte)))))
-          (incf eboy-pc)) ;; 8
+          (incf eboy-pc) (incf eboy-clock-cycles 8))
     (#x28 (eboy-log (format " JR Z,* "))
           (if (eboy-get-flag flags :Z)
               (setq eboy-pc (+ eboy-pc (eboy-byte-to-signed (eboy-get-byte)))))
-          (incf eboy-pc)) ;; 8
-    (#x30 (eboy-log (format " JR NC,* ")) (assert nil t "unimplemented opcode")) ;; 8
-    (#x38 (eboy-log (format " JR C,* ")) (assert nil t "unimplemented opcode")) ;; 8
+          (incf eboy-pc) (incf eboy-clock-cycles 8))
+    (#x30 (eboy-log (format " JR NC,* ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#x38 (eboy-log (format " JR C,* ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
 
 
       ;;; Calls
@@ -1540,7 +1557,7 @@ Little Endian."
           (decf eboy-sp 2)
           (eboy-mem-write-short eboy-sp (+ eboy-pc 3))
           (setq eboy-pc (1- (eboy-get-short))) ;; decrement one, since it will be incremented next.
-          );; 12
+           (incf eboy-clock-cycles 12))
 
     ;; CALL cc,nn - Call address n if following condition is true:
     ;;  cc = NZ, Call if Z flag is reset.
@@ -1548,28 +1565,28 @@ Little Endian."
     ;;  cc = NC, Call if C flag is reset.
     ;;  cc = C, Call if C flag is set.
     ;;  nn = two byte immediate value. (LS byte first.)
-    (#xC4 (eboy-log (format " CALL NZ,nn  ")) (assert nil t "unimplemented opcode"));; 12
-    (#xCC (eboy-log (format " CALL Z,nn  ")) (assert nil t "unimplemented opcode"));; 12
-    (#xD4 (eboy-log (format " CALL NC,nn  ")) (assert nil t "unimplemented opcode"));; 12
-    (#xDC (eboy-log (format " CALL C,nn  ")) (assert nil t "unimplemented opcode"));; 12
+    (#xC4 (eboy-log (format " CALL NZ,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
+    (#xCC (eboy-log (format " CALL Z,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
+    (#xD4 (eboy-log (format " CALL NC,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
+    (#xDC (eboy-log (format " CALL C,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
 
 
       ;;; Restarts
 
     ;; RST n - Push present address onto stack. Jump to address $0000 + n.
     ;;  n = $00,$08,$10,$18,$20,$28,$30,$38
-    (#xC7 (eboy-log (format " RST 00H  ")) (assert nil t "unimplemented opcode"));; 32
-    (#xCF (eboy-log (format " RST 08H  ")) (assert nil t "unimplemented opcode"));; 32
-    (#xD7 (eboy-log (format " RST 10H  ")) (assert nil t "unimplemented opcode"));; 32
-    (#xDF (eboy-log (format " RST 18H  ")) (assert nil t "unimplemented opcode"));; 32
-    (#xE7 (eboy-log (format " RST 20H  ")) (assert nil t "unimplemented opcode"));; 32
+    (#xC7 (eboy-log (format " RST 00H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
+    (#xCF (eboy-log (format " RST 08H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
+    (#xD7 (eboy-log (format " RST 10H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
+    (#xDF (eboy-log (format " RST 18H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
+    (#xE7 (eboy-log (format " RST 20H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
     (#xEF (eboy-log (format " RST 28H  "))
           (decf eboy-sp 2)
           (eboy-mem-write-short eboy-sp (+ eboy-pc 1))
           (setq eboy-pc (1- #x28)) ;; Decrement one since it will be incremented next.
-          );; 32
-    (#xF7 (eboy-log (format " RST 30H  ")) (assert nil t "unimplemented opcode"));; 32
-    (#xFF (eboy-log (format " RST 38H  ")) (assert nil t "unimplemented opcode"));; 32
+           (incf eboy-clock-cycles 32))
+    (#xF7 (eboy-log (format " RST 30H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
+    (#xFF (eboy-log (format " RST 38H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
 
       ;;; Returns
 
@@ -1577,7 +1594,7 @@ Little Endian."
     (#xC9 (eboy-log (format " RET -/- (%0004x)" (eboy-mem-read-short eboy-sp)))
           (setq eboy-pc (1- (eboy-mem-read-short eboy-sp))) ;; decrement one, since it will be incremented next.
           (incf eboy-sp 2)
-          ) ;; 8
+           (incf eboy-clock-cycles 8))
 
     ;; RET cc - Return if following condition is true:
     ;;  cc = NZ, Return if Z flag is reset.
@@ -1589,22 +1606,22 @@ Little Endian."
               (progn
                 (setq eboy-pc (1- (eboy-mem-read-short eboy-sp))) ;; decrement one, since it will be incremented next.
                 (incf eboy-sp 2)))
-          ) ;; 8
+          (incf eboy-clock-cycles 8))
     (#xC8 (eboy-log (format " RET Z "))
           (if (eboy-get-flag flags :Z)
               (progn
                 (setq eboy-pc (1- (eboy-mem-read-short eboy-sp))) ;; decrement one, since it will be incremented next.
                 (incf eboy-sp 2)))
-          ) ;; 8
-    (#xD0 (eboy-log (format " RET NC ")) (assert nil t "unimplemented opcode")) ;; 8
-    (#xD8 (eboy-log (format " RET C ")) (assert nil t "unimplemented opcode")) ;; 8
+          (incf eboy-clock-cycles 8))
+    (#xD0 (eboy-log (format " RET NC ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#xD8 (eboy-log (format " RET C ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
 
     ;; RETI - Pop two bytes from stack & jump to that address then enable interrupts.
     (#xD9 (eboy-log (format " RETI -/- " ))
           (setq eboy-pc (1- (eboy-mem-read-short eboy-sp))) ;; decrement one, since it will be incremented next.
           (incf eboy-sp 2)
           (setq eboy-interrupt-master-enbl t)
-          ) ;; 8
+          (incf eboy-clock-cycles 8))
 
     ;; Non existant opcodes
     (#xD3 (eboy-log (format "Non existant opcode: 0x%02x" opcode)) (assert nil t))
@@ -1693,11 +1710,12 @@ Little Endian."
     (setq eboy-sp eboy-sp-initial-value)
     (eboy-init-registers)
     (eboy-init-memory)
-    (setq eboy-boot-rom-disabled-p t) ;; remember to do this also after the boot rom has jumped to #x100
+    (setq eboy-boot-rom-disabled-p t)
     )
   (setq eboy-rom-filename "roms/test_rom.gb")
   (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
   (setq eboy-rom-size (length eboy-rom))
+  (setq eboy-clock-cycles 0)
   (setq eboy-debug-nr-instructions 0)
   (setq eboy-debug-pc-max 0)
   (switch-to-buffer "*eboy*")
