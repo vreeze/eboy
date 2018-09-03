@@ -36,7 +36,7 @@ Return the binary data as unibyte string."
 (defvar eboy-boot-rom-disabled-p nil "After boot disable the boot rom.")
 (defvar eboy-clock-cycles 0 "Number of elapsed clock cycles.") ;; when to reset?
 (defvar eboy-display-write-done nil "Indicate if at line 143 we need to write the display.")
-
+(defvar eboy-lcd-ly nil "The LCDC Y Coordinate.")
 
 ;;(defvar eboy-flags (make-bool-vector 4 t) "The flags Z(Zero) S(Negative) H(Halve Carry) and C(Carry).")
 (defvar eboy-debug-nr-instructions nil "Number of instructions executed.")
@@ -247,7 +247,8 @@ Return the binary data as unibyte string."
        ((= address #xFF47) (eboy-msg "Read BGP: BG & Window Palette DATA.") )
        ;;((= address #xFF46) (eboy-msg "Read DMA: DMA Transfer and Start Address.") )
        ((= address #xFF45) (eboy-msg "Read LYC: LY Compare.") )
-       ((= address #xFF44) (eboy-msg "Read LY: LCDC Y Coordinate.") )
+       ((= address #xFF44) (eboy-msg "Read LY: LCDC Y Coordinate.")
+        (setq data eboy-lcd-ly))
        ((= address #xFF43) (eboy-msg "Read SCX: Scroll X.") )
        ((= address #xFF42) (eboy-msg "Read SCY: Scroll Y.") )
        ((= address #xFF41) (eboy-msg "Read STAT: LCDC Status.") )
@@ -347,7 +348,8 @@ Return the binary data as unibyte string."
      ((= address #xFF47) (eboy-msg "Write BGP: BG & Window Palette DATA.") )
      ((= address #xFF46) (eboy-msg "Write DMA: DMA Transfer and Start Address.") )
      ((= address #xFF45) (eboy-msg "Write LYC: LY Compare.") )
-     ;;((= address #xFF44) (eboy-msg "Read LY: LCDC Y Coordinate.") )
+     ((= address #xFF44) (eboy-msg "Write LY: Reset the LCDC Y Coordinate.")
+      (setq eboy-lcd-ly 0))
      ((= address #xFF43) (eboy-msg "Write SCX: Scroll X.") )
      ((= address #xFF42) (eboy-msg "Write SCY: Scroll Y.") )
      ((= address #xFF41) (eboy-msg "Write STAT: LCDC Status.") )
@@ -617,16 +619,18 @@ Little Endian."
   )
 
 (defvar eboy-display-color-table (make-hash-table :test 'eq) "The hash table with display values.")
-(puthash 3 "15 56 15" eboy-display-color-table)
-(puthash 2 "48 98 48" eboy-display-color-table)
-(puthash 1 "139 172 15" eboy-display-color-table)
-(puthash 0 "155 188 15" eboy-display-color-table)
+(puthash 3 "15 56 15" eboy-display-color-table) ; #0F380F
+(puthash 2 "48 98 48" eboy-display-color-table) ; #309830
+(puthash 1 "139 172 15" eboy-display-color-table) ; #8BAC0F
+(puthash 0 "155 188 15" eboy-display-color-table) ; #9BBC0F
 
 (defun eboy-write-display ()
   "Write the colors."
   (interactive)
-  (switch-to-buffer "*eboy-display*")
-  (fundamental-mode)
+  (with-current-buffer "*eboy-display*")
+  ;(switch-to-buffer "*eboy-display*")
+;;  (fundamental-mode)
+  ;;(inhibit-read-only t)
   (erase-buffer)
   (insert "P3\n")
   (insert "160 144\n")
@@ -638,16 +642,47 @@ Little Endian."
     (insert "\n")
     )
   (image-mode)
+  (deactivate-mark)
+  (display-buffer "*eboy-display*")
+  ;;(switch-to-buffer "*eboy*")
+  )
+(defun eboy-get-XPM-string ()
+  "Get the XPM image string."
+  (let ((xpm "/* XPM */
+static char *frame[] = {
+\"160  144 4 1\",
+\"0 c #9BBC0F \",
+\"1 c #8BAC0F \",
+\"2 c #309830 \",
+\"3 c #0F380F \",
+"))
+    (dotimes (y 144)
+      (setq xpm (concat xpm  "\""))
+      (dotimes (x 160)
+        (setq xpm (concat xpm (format "%s" (eboy-get-color-xy x y)))))
+      (setq xpm (concat xpm  "\",\n"))
+      )
+    (setq xpm (concat xpm "};"))
+    )
+  )
+
+(defun eboy-write-display2 ()
+  "Write the image to the buffer, in XPM format."
+  (interactive)
+  (with-current-buffer "*eboy-display*")
+  (erase-buffer)
+  (insert (propertize " " 'display (create-image (eboy-get-XPM-string) 'xpm t)))
+  (deactivate-mark)
   )
 
 (defun eboy-lcd-cycle ()
   "Perform a single lcd cycle."
-  (let* ((screen-cycle (mod eboy-clock-cycles 70224))
-         (line-nr (mod screen-cycle 456)))
-    (when (and (= line-nr 143) (not eboy-display-write-done))
-      (eboy-write-display)
+  (let ((screen-cycle (mod eboy-clock-cycles 70224)))
+    (setq eboy-lcd-ly (/ screen-cycle 456))
+    (when (and (= eboy-lcd-ly 143) (not eboy-display-write-done))
+      (eboy-write-display2)
       (setq eboy-display-write-done t))
-    (when (= line-nr 144)
+    (when (= eboy-lcd-ly 144)
       (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-vblank))
       (setq eboy-display-write-done nil)
         )
@@ -1133,7 +1168,11 @@ Little Endian."
           (eboy-set-flag flags :N nil)
           (eboy-set-flag flags :H (< (logand eboy-rH #xf) (logand (1- eboy-rH) #xf)))
            (incf eboy-clock-cycles 4))
-    (#x2C (eboy-log (format " INC L ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
+    (#x2C (eboy-log (format " INC L "))
+          (eboy-set-flag flags :Z (zerop eboy-rL))
+          (eboy-set-flag flags :N nil)
+          (eboy-set-flag flags :H (< (logand eboy-rL #xf) (logand (1- eboy-rL) #xf)))
+          (incf eboy-clock-cycles 4))
     (#x34 (eboy-log (format " INC (HL)  "))
           (let* ((hl (eboy-get-rHL))
                 (data (eboy-mem-read-byte hl)))
@@ -1160,7 +1199,11 @@ Little Endian."
     (#x1D (eboy-log (format " DEC E ")) (eboy-dec eboy-rE flags) (incf eboy-clock-cycles 4))
     (#x25 (eboy-log (format " DEC H ")) (eboy-dec eboy-rH flags) (incf eboy-clock-cycles 4))
     (#x2D (eboy-log (format " DEC L ")) (eboy-dec eboy-rL flags) (incf eboy-clock-cycles 4))
-    (#x35 (eboy-log (format " DEC (HL)  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
+    (#x35 (eboy-log (format " DEC (HL)  "))
+          (let ((data (eboy-mem-read-byte (eboy-get-rHL))))
+            (eboy-dec data flags)
+            (eboy-mem-write-byte (eboy-get-rHL) data))
+          (incf eboy-clock-cycles 12))
 
       ;;; 16-Bit Arithmetic
     ;;
@@ -1504,7 +1547,7 @@ Little Endian."
     ;; JP nn - Jump to address nn.
     (#xC3 (eboy-log (format " JP $%04x" (eboy-get-short)) )
           (setq eboy-pc (1- (eboy-get-short))) ;;Compensate for the pc +1 that is done with each instruction.
-          (incf eboy-clock-cycles 12))
+          (incf eboy-clock-cycles 16))
 
     ;; JP cc,nn - Jump to address n if following condition is true:
     ;;   cc = NZ, Jump if Z flag is reset.
@@ -1515,11 +1558,14 @@ Little Endian."
     (#xC2 (eboy-log (format " JP NZ,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
     (#xCA (eboy-log (format " JP Z,$%04x" (eboy-get-short)))
           (if (eboy-get-flag flags :Z)
-              (setq eboy-pc (1- (eboy-get-short))) ;; Compensate for the pc +1 that is done with each instruction.
+              (progn (setq eboy-pc (1- (eboy-get-short)))
+                     (incf eboy-clock-cycles 4)) ;; Compensate for the pc +1 that is done with each instruction.
             (eboy-inc-pc 2))
-           (incf eboy-clock-cycles 12))
-    (#xD2 (eboy-log (format " JP NC,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
-    (#xDA (eboy-log (format " JP C,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
+          (incf eboy-clock-cycles 12))
+    (#xD2 (eboy-log (format " JP NC,nn  ")) (assert nil t "unimplemented opcode") ;;(incf eboy-clock-cycles 12)  or 16
+          )
+    (#xDA (eboy-log (format " JP C,nn  ")) (assert nil t "unimplemented opcode") ;;(incf eboy-clock-cycles 12)  or 16
+          )
 
     ;; JP (HL) - Jump to address contained in HL.
     (#xE9 (eboy-log (format " JP (HL) "))
@@ -1539,14 +1585,20 @@ Little Endian."
     ;;  cc = C, Jump if C flag is set.
     (#x20 (eboy-log (format " JR NZ,* (%02d)" (eboy-byte-to-signed (eboy-get-byte))))
           (if (null (eboy-get-flag flags :Z))
-              (setq eboy-pc (+ eboy-pc (eboy-byte-to-signed (eboy-get-byte)))))
-          (incf eboy-pc) (incf eboy-clock-cycles 8))
+              (progn (setq eboy-pc (+ eboy-pc (eboy-byte-to-signed (eboy-get-byte))))
+                     (incf eboy-clock-cycles 4)))
+          (incf eboy-pc)
+          (incf eboy-clock-cycles 8))
     (#x28 (eboy-log (format " JR Z,* "))
           (if (eboy-get-flag flags :Z)
-              (setq eboy-pc (+ eboy-pc (eboy-byte-to-signed (eboy-get-byte)))))
-          (incf eboy-pc) (incf eboy-clock-cycles 8))
-    (#x30 (eboy-log (format " JR NC,* ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
-    (#x38 (eboy-log (format " JR C,* ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+              (progn (setq eboy-pc (+ eboy-pc (eboy-byte-to-signed (eboy-get-byte))))
+                     (incf eboy-clock-cycles 4)))
+          (incf eboy-pc)
+          (incf eboy-clock-cycles 8))
+    (#x30 (eboy-log (format " JR NC,* ")) (assert nil t "unimplemented opcode") ;; or 12 (incf eboy-clock-cycles 8)
+          )
+    (#x38 (eboy-log (format " JR C,* ")) (assert nil t "unimplemented opcode") ;; or 12(incf eboy-clock-cycles 8)
+          )
 
 
       ;;; Calls
@@ -1557,7 +1609,7 @@ Little Endian."
           (decf eboy-sp 2)
           (eboy-mem-write-short eboy-sp (+ eboy-pc 3))
           (setq eboy-pc (1- (eboy-get-short))) ;; decrement one, since it will be incremented next.
-           (incf eboy-clock-cycles 12))
+          (incf eboy-clock-cycles 24))
 
     ;; CALL cc,nn - Call address n if following condition is true:
     ;;  cc = NZ, Call if Z flag is reset.
@@ -1565,28 +1617,32 @@ Little Endian."
     ;;  cc = NC, Call if C flag is reset.
     ;;  cc = C, Call if C flag is set.
     ;;  nn = two byte immediate value. (LS byte first.)
-    (#xC4 (eboy-log (format " CALL NZ,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
-    (#xCC (eboy-log (format " CALL Z,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
-    (#xD4 (eboy-log (format " CALL NC,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
-    (#xDC (eboy-log (format " CALL C,nn  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 12))
+    (#xC4 (eboy-log (format " CALL NZ,nn  ")) (assert nil t "unimplemented opcode") ;; or 24(incf eboy-clock-cycles 12)
+          )
+    (#xCC (eboy-log (format " CALL Z,nn  ")) (assert nil t "unimplemented opcode") ;; or 24(incf eboy-clock-cycles 12)
+          )
+    (#xD4 (eboy-log (format " CALL NC,nn  ")) (assert nil t "unimplemented opcode") ;; or 24(incf eboy-clock-cycles 12)
+          )
+    (#xDC (eboy-log (format " CALL C,nn  ")) (assert nil t "unimplemented opcode") ;; or 24(incf eboy-clock-cycles 12)
+          )
 
 
       ;;; Restarts
 
     ;; RST n - Push present address onto stack. Jump to address $0000 + n.
     ;;  n = $00,$08,$10,$18,$20,$28,$30,$38
-    (#xC7 (eboy-log (format " RST 00H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
-    (#xCF (eboy-log (format " RST 08H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
-    (#xD7 (eboy-log (format " RST 10H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
-    (#xDF (eboy-log (format " RST 18H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
-    (#xE7 (eboy-log (format " RST 20H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
+    (#xC7 (eboy-log (format " RST 00H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
+    (#xCF (eboy-log (format " RST 08H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
+    (#xD7 (eboy-log (format " RST 10H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
+    (#xDF (eboy-log (format " RST 18H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
+    (#xE7 (eboy-log (format " RST 20H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
     (#xEF (eboy-log (format " RST 28H  "))
           (decf eboy-sp 2)
           (eboy-mem-write-short eboy-sp (+ eboy-pc 1))
           (setq eboy-pc (1- #x28)) ;; Decrement one since it will be incremented next.
-           (incf eboy-clock-cycles 32))
-    (#xF7 (eboy-log (format " RST 30H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
-    (#xFF (eboy-log (format " RST 38H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 32))
+          (incf eboy-clock-cycles 16))
+    (#xF7 (eboy-log (format " RST 30H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
+    (#xFF (eboy-log (format " RST 38H  ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 16))
 
       ;;; Returns
 
@@ -1594,7 +1650,7 @@ Little Endian."
     (#xC9 (eboy-log (format " RET -/- (%0004x)" (eboy-mem-read-short eboy-sp)))
           (setq eboy-pc (1- (eboy-mem-read-short eboy-sp))) ;; decrement one, since it will be incremented next.
           (incf eboy-sp 2)
-           (incf eboy-clock-cycles 8))
+          (incf eboy-clock-cycles 16))
 
     ;; RET cc - Return if following condition is true:
     ;;  cc = NZ, Return if Z flag is reset.
@@ -1605,23 +1661,27 @@ Little Endian."
           (if (null (eboy-get-flag flags :Z))
               (progn
                 (setq eboy-pc (1- (eboy-mem-read-short eboy-sp))) ;; decrement one, since it will be incremented next.
-                (incf eboy-sp 2)))
+                (incf eboy-sp 2)
+                (incf eboy-clock-cycles 12)))
           (incf eboy-clock-cycles 8))
     (#xC8 (eboy-log (format " RET Z "))
           (if (eboy-get-flag flags :Z)
               (progn
                 (setq eboy-pc (1- (eboy-mem-read-short eboy-sp))) ;; decrement one, since it will be incremented next.
-                (incf eboy-sp 2)))
+                (incf eboy-sp 2)
+                (incf eboy-clock-cycles 12)))
           (incf eboy-clock-cycles 8))
-    (#xD0 (eboy-log (format " RET NC ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
-    (#xD8 (eboy-log (format " RET C ")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
+    (#xD0 (eboy-log (format " RET NC ")) (assert nil t "unimplemented opcode") ; 20 or (incf eboy-clock-cycles 8)
+          )
+    (#xD8 (eboy-log (format " RET C ")) (assert nil t "unimplemented opcode") ; 20 or (incf eboy-clock-cycles 8)
+          )
 
     ;; RETI - Pop two bytes from stack & jump to that address then enable interrupts.
     (#xD9 (eboy-log (format " RETI -/- " ))
           (setq eboy-pc (1- (eboy-mem-read-short eboy-sp))) ;; decrement one, since it will be incremented next.
           (incf eboy-sp 2)
           (setq eboy-interrupt-master-enbl t)
-          (incf eboy-clock-cycles 8))
+          (incf eboy-clock-cycles 16))
 
     ;; Non existant opcodes
     (#xD3 (eboy-log (format "Non existant opcode: 0x%02x" opcode)) (assert nil t))
@@ -1639,18 +1699,18 @@ Little Endian."
     )
 
   (eboy-inc-pc 1)
-  (if (= eboy-pc #x235)
-      (progn (message "indicate the V-Blank moment")
-             (eboy-mem-write-byte #xFF44 #x94)))
-  (if (= eboy-pc #x282c)
-      (progn (message "Set LCDC Y coordinate to V-Blank range 0x90-0x99")
-             (eboy-mem-write-byte #xFF44 #x91)))
-  (if (= eboy-pc #x68) (eboy-mem-write-byte #xFF44 #x90) )
+  ;; (if (= eboy-pc #x235)
+  ;;     (progn (message "indicate the V-Blank moment")
+  ;;            (eboy-mem-write-byte #xFF44 #x94)))
+  ;; (if (= eboy-pc #x282c)
+  ;;     (progn (message "Set LCDC Y coordinate to V-Blank range 0x90-0x99")
+  ;;            (eboy-mem-write-byte #xFF44 #x91)))
+  ;; (if (= eboy-pc #x68) (eboy-mem-write-byte #xFF44 #x90) )
   ; (if (> eboy-pc eboy-debug-pc-max)
   ;     (progn
   ;       (insert (format "instr: %x pc: %x\n" eboy-debug-nr-instructions eboy-pc))
   ;       (setq eboy-debug-pc-max eboy-pc)))
-  (if (= eboy-pc #x91) (setq eboy-debug-nr-instructions 99999999999) )
+;;  (if (= eboy-pc #x91) (setq eboy-debug-nr-instructions 99999999999) )
   )
 
 ;;(message (format "%x" (logand #xFF (lognot eboy-im-vblank))))
@@ -1701,7 +1761,7 @@ Little Endian."
 (defun eboy-load-rom ()
   "Load the rom file.  For now just automatically load a test rom."
   (interactive)
-  (if nil
+  (if t
       (progn
         (setq eboy-boot-rom-filename "boot/DMG_ROM.bin")
         (setq eboy-boot-rom (vconcat (eboy-read-bytes eboy-boot-rom-filename)))
@@ -1718,7 +1778,9 @@ Little Endian."
   (setq eboy-clock-cycles 0)
   (setq eboy-debug-nr-instructions 0)
   (setq eboy-debug-pc-max 0)
+  (setq eboy-lcd-ly 0)
   (switch-to-buffer "*eboy*")
+  (switch-to-buffer "*eboy-display*")
   (erase-buffer)
   (if eboy-debug-1 (eboy-log (format "Load rom: %s\n" eboy-rom-filename)))
   (if eboy-debug-1 (eboy-log (format "Rom size: %d bytes\n" eboy-rom-size)))
@@ -1745,7 +1807,7 @@ Little Endian."
   (message "we finished? eboy-pc: %x" eboy-pc)
   )
 
-(defun step ()
+(defun eboy-debug-step ()
   "docstring"
   (interactive)
   (eboy-process-interrupts)
@@ -1755,7 +1817,7 @@ Little Endian."
   (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
   )
 
-(defun step-nr-of-times (nr)
+(defun eboy-debug-step-nr-of-times (nr)
   "docstring"
   (interactive "nNr of steps: ")
 ;;  (setq eboy-debug-1 t)
@@ -1764,6 +1826,7 @@ Little Endian."
     ;;(insert (format "%2d: " eboy-debug-nr-instructions))
     (eboy-process-opcode (eboy-mem-read-byte eboy-pc) eboy-flags)
     (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
+    (eboy-lcd-cycle)
     (decf nr)
     )
   (message "stopped! left: %d" nr)
@@ -1782,7 +1845,23 @@ Little Endian."
   (message "break at opcode %02x\n" pc-addr)
   )
 
-;; (setq eboy-debug-1 nil)
+(defun eboy-debug-toggle-verbosity ()
+  "Toggle debug verbosity level."
+  (interactive)
+  (cond ((not eboy-debug-1)
+         (setq eboy-debug-1 t)
+         (message "Verbosity level 1"))
+        ((and eboy-debug-1 (not eboy-debug-2))
+         (setq eboy-debug-2 t)
+         (message "Verbosity level 2"))
+        ((and eboy-debug-1 eboy-debug-2)
+         (setq eboy-debug-1 nil)
+         (setq eboy-debug-2 nil)
+         (message "Verbosity level 0"))
+        ))
+
+
+(setq eboy-debug-1 nil)
 ;; (setq eboy-debug-2 nil)
 (eboy-load-rom)
 
@@ -1791,8 +1870,9 @@ Little Endian."
 
 (progn
   (setq eboy-mode-map (make-sparse-keymap))
-  (define-key eboy-mode-map (kbd "<f5>") 'step)
+  (define-key eboy-mode-map (kbd "<f5>") 'eboy-debug-step)
   (define-key eboy-mode-map (kbd "f") 'eboy-print-registers)
+  (define-key eboy-mode-map (kbd "v") 'eboy-debug-toggle-verbosity)
   ;; by convention, major mode's keys should begin with the form C-c C-‹key›
   ;; by convention, keys of the form C-c ‹letter› are reserved for user. don't define such keys in your major mode
   )
