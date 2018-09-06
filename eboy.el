@@ -37,6 +37,7 @@ Return the binary data as unibyte string."
 (defvar eboy-clock-cycles 0 "Number of elapsed clock cycles.") ;; when to reset?
 (defvar eboy-display-write-done nil "Indicate if at line 143 we need to write the display.")
 (defvar eboy-lcd-ly nil "The LCDC Y Coordinate.")
+(defvar eboy-delay-enabling-interrupt-p nil "Enabling interrupts is delayd with one instruction.")
 
 ;;(defvar eboy-flags (make-bool-vector 4 t) "The flags Z(Zero) S(Negative) H(Halve Carry) and C(Carry).")
 (defvar eboy-debug-nr-instructions nil "Number of instructions executed.")
@@ -185,7 +186,7 @@ Return the binary data as unibyte string."
 
 (defun eboy-msg (msg)
   "Write a MSG string to the message buffer."
-  (if eboy-debug-1 (message "eboy: %s" msg))
+  (if eboy-debug-2 (message "eboy: %s" msg))
   )
 
 (defvar eboy-ram (make-vector (* 8 1024) 0) "The 8 kB interal RAM.")
@@ -624,6 +625,12 @@ Little Endian."
 (puthash 1 "139 172 15" eboy-display-color-table) ; #8BAC0F
 (puthash 0 "155 188 15" eboy-display-color-table) ; #9BBC0F
 
+(defvar eboy-display-unicode-table (make-hash-table :test 'eq) "The hash table with unicode display values.")
+(puthash 3 #x2588 eboy-display-unicode-table) ; █
+(puthash 2 #x2593 eboy-display-unicode-table) ; ▓
+(puthash 1 #x2592 eboy-display-unicode-table) ; ▒
+(puthash 0 #x0020 eboy-display-unicode-table) ;
+
 (defun eboy-write-display ()
   "Write the colors."
   (interactive)
@@ -675,14 +682,29 @@ static char *frame[] = {
   (deactivate-mark)
   )
 
+(defun eboy-write-display-unicode ()
+  "Write the display as unicode characters."
+  (interactive)
+  (message "display-unicode")
+  (with-current-buffer "*eboy-display*")
+  (erase-buffer)
+  (dotimes (y 144)
+    (dotimes (x 160)
+      (insert (gethash (eboy-get-color-xy x y) eboy-display-unicode-table))
+      )
+    (insert "\n")
+    )
+  (redisplay)
+  )
+
 (defun eboy-lcd-cycle ()
   "Perform a single lcd cycle."
   (let ((screen-cycle (mod eboy-clock-cycles 70224)))
     (setq eboy-lcd-ly (/ screen-cycle 456))
     (when (and (= eboy-lcd-ly 143) (not eboy-display-write-done))
-      (eboy-write-display2)
+      (eboy-write-display-unicode)
       (setq eboy-display-write-done t))
-    (when (= eboy-lcd-ly 144)
+    (when (and (= eboy-lcd-ly 144) eboy-display-write-done)
       (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-vblank))
       (setq eboy-display-write-done nil)
         )
@@ -711,7 +733,7 @@ static char *frame[] = {
 (defun eboy-process-opcode (opcode flags)
   "Process OPCODE, cpu FLAGS state."
   ;;(if eboy-debug-1 (eboy-debug-print-cpu-state flags))
-  (if eboy-debug-1 (insert (format "\npc: 0x%x, opcode: 0x%02x" eboy-pc opcode)))
+  (if eboy-debug-1 (insert (format "\npc: 0x%x, opcode: 0x%02x, 0x%x" eboy-pc opcode eboy-clock-cycles)))
   (cl-case opcode
     (#x00 (eboy-log " NOP") (incf eboy-clock-cycles 4))
 
@@ -904,18 +926,20 @@ static char *frame[] = {
     ;; Decrement Stack Pointer (SP) twice.
     (#xF5 (eboy-log (format " PUSH AF"))
           (decf eboy-sp 2)
-          (eboy-mem-write-short eboy-sp (eboy-get-rpair eboy-rA (eboy-flags-to-byte flags))) (incf eboy-clock-cycles 16))
+          (eboy-mem-write-short eboy-sp (eboy-get-rpair eboy-rA (eboy-flags-to-byte flags)))
+          (incf eboy-clock-cycles 16))
     (#xC5 (eboy-log (format " PUSH BC"))
           (decf eboy-sp 2)
-          (eboy-mem-write-short eboy-sp (eboy-get-rBC)) (incf eboy-clock-cycles 16))
+          (eboy-mem-write-short eboy-sp (eboy-get-rBC))
+          (incf eboy-clock-cycles 16))
     (#xD5 (eboy-log (format " PUSH DE"))
           (decf eboy-sp 2)
           (eboy-mem-write-short eboy-sp (eboy-get-rDE))
-           (incf eboy-clock-cycles 16))
+          (incf eboy-clock-cycles 12)) ;; TODO: maybe change into 16 again?
     (#xE5 (eboy-log (format " PUSH HL"))
           (decf eboy-sp 2)
           (eboy-mem-write-short eboy-sp (eboy-get-rHL))
-           (incf eboy-clock-cycles 16))
+          (incf eboy-clock-cycles 16))
 
     ;; Pop two bytes off stack into register pair nn.
     ;; Increment Stack Pointer (SP) twice.
@@ -1308,7 +1332,10 @@ static char *frame[] = {
     ;; EI - Enable interrupts. This intruction enables interrupts but not immediately. Interrupts are enabled after instruction after EI is executed.
     ;; Flags affected:
     ;; None.
-    (#xFB (eboy-log (format " EI -/- ")) (setq eboy-interrupt-master-enbl t) (incf eboy-clock-cycles 4))
+    (#xFB (eboy-log (format " EI -/- "))
+          (setq eboy-interrupt-master-enbl t)
+          (incf eboy-clock-cycles 4)
+          (setq eboy-delay-enabling-interrupt-p t))
 
       ;;; Rotates & Shift
 
@@ -1681,7 +1708,8 @@ static char *frame[] = {
           (setq eboy-pc (1- (eboy-mem-read-short eboy-sp))) ;; decrement one, since it will be incremented next.
           (incf eboy-sp 2)
           (setq eboy-interrupt-master-enbl t)
-          (incf eboy-clock-cycles 16))
+          (incf eboy-clock-cycles 16)
+          (setq eboy-delay-enabling-interrupt-p t))
 
     ;; Non existant opcodes
     (#xD3 (eboy-log (format "Non existant opcode: 0x%02x" opcode)) (assert nil t))
@@ -1729,39 +1757,41 @@ static char *frame[] = {
 
 (defun eboy-process-interrupts ()
   "Process pending interrupts."
-  (let ((enbl-intr (logand eboy-interrupt-enabled  eboy-interrupt-pending)))
-    (if (and eboy-interrupt-master-enbl (> enbl-intr #x00))
-        (progn (eboy-msg "handle enbl interrupt")
-               (cond
-                ((= 1 (logand enbl-intr eboy-im-vblank))
-                 (eboy-msg " V-Blank")
-                 (eboy-disable-interrupt eboy-im-vblank)
-                 (eboy-process-interrupt #x40))
-                ((= 1 (logand enbl-intr eboy-im-lcdc))
-                 (eboy-msg " LCDC")
-                 (eboy-disable-interrupt eboy-im-lcdc)
-                 (eboy-process-interrupt #x48))
-                ((= 1 (logand enbl-intr eboy-im-tmr-overflow))
-                 (eboy-msg " Timer Overflow")
-                 (eboy-disable-interrupt eboy-im-tmr-overflow)
-                 (eboy-process-interrupt #x50))
-                ((= 1 (logand enbl-intr eboy-im-s-trans-compl))
-                 (eboy-msg " Serial I/O transfer complete")
-                 (eboy-disable-interrupt eboy-im-s-trans-compl)
-                 (eboy-process-interrupt #x58))
-                ((= 1 (logand enbl-intr eboy-im-h2l-pins))
-                 (eboy-msg " transition from h to l of pin P10-P13")
-                 (eboy-disable-interrupt eboy-im-h2l-pins)
-                 (eboy-process-interrupt #x60))
-                )))
-    )
+  (if eboy-delay-enabling-interrupt-p
+      (setq eboy-delay-enabling-interrupt-p nil)
+    (let ((enbl-intr (logand eboy-interrupt-enabled  eboy-interrupt-pending)))
+      (if (and eboy-interrupt-master-enbl (> enbl-intr #x00))
+          (progn (eboy-msg "handle enbl interrupt")
+                 (cond
+                  ((= 1 (logand enbl-intr eboy-im-vblank))
+                   (eboy-msg " V-Blank")
+                   (eboy-disable-interrupt eboy-im-vblank)
+                   (eboy-process-interrupt #x40))
+                  ((= 1 (logand enbl-intr eboy-im-lcdc))
+                   (eboy-msg " LCDC")
+                   (eboy-disable-interrupt eboy-im-lcdc)
+                   (eboy-process-interrupt #x48))
+                  ((= 1 (logand enbl-intr eboy-im-tmr-overflow))
+                   (eboy-msg " Timer Overflow")
+                   (eboy-disable-interrupt eboy-im-tmr-overflow)
+                   (eboy-process-interrupt #x50))
+                  ((= 1 (logand enbl-intr eboy-im-s-trans-compl))
+                   (eboy-msg " Serial I/O transfer complete")
+                   (eboy-disable-interrupt eboy-im-s-trans-compl)
+                   (eboy-process-interrupt #x58))
+                  ((= 1 (logand enbl-intr eboy-im-h2l-pins))
+                   (eboy-msg " transition from h to l of pin P10-P13")
+                   (eboy-disable-interrupt eboy-im-h2l-pins)
+                   (eboy-process-interrupt #x60))
+                  )))
+      ))
   )
 (defvar eboy-flags nil "Temp storage flags.")
 
 (defun eboy-load-rom ()
   "Load the rom file.  For now just automatically load a test rom."
   (interactive)
-  (if t
+  (if nil
       (progn
         (setq eboy-boot-rom-filename "boot/DMG_ROM.bin")
         (setq eboy-boot-rom (vconcat (eboy-read-bytes eboy-boot-rom-filename)))
@@ -1822,14 +1852,15 @@ static char *frame[] = {
   (interactive "nNr of steps: ")
 ;;  (setq eboy-debug-1 t)
   (while (and (/= nr 0) (/= eboy-pc #xe0)) ;(or (<= eboy-pc #x100) )
-    (eboy-process-interrupts)
     ;;(insert (format "%2d: " eboy-debug-nr-instructions))
     (eboy-process-opcode (eboy-mem-read-byte eboy-pc) eboy-flags)
-    (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
+    (eboy-process-interrupts)
     (eboy-lcd-cycle)
+    (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
     (decf nr)
     )
   (message "stopped! left: %d" nr)
+  ;;(eboy-write-display-unicode)
   )
 
 (defun eboy-debug-break-at-pc-addr (pc-addr)
