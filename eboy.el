@@ -350,10 +350,12 @@ Return the binary data as unibyte string."
       (setq eboy-lcd-ly 0))
      ((= address #xFF43) (eboy-msg "Write SCX: Scroll X.")
       (setq eboy-lcd-scrollx data)
-      (message "scroll x %d" data))
+      ;;(message "scroll x %d" data)
+      )
      ((= address #xFF42) (eboy-msg "Write SCY: Scroll Y.")
       (setq eboy-lcd-scrolly data)
-      (message "scroll y %d" data))
+      ;;(message "scroll y %d" data)
+      )
      ((= address #xFF41) (eboy-msg "Write STAT: LCDC Status.") )
      ((= address #xFF40) (eboy-msg "Write LCDC: LCD Control.") )
      ;; in between sound registers, but not consecutive, some unknow address.
@@ -1068,7 +1070,7 @@ static char *frame[] = {
     (#x9C (eboy-log (format " SBC A,H")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#x9D (eboy-log (format " SBC A,L")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 4))
     (#x9E (eboy-log (format " SBC A,(HL)")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles 8))
-    ;;(?? (eboy-log (format " SBC A,#")) (incf eboy-clock-cycles ))?
+    (#xDE (eboy-log (format " SBC A,#")) (assert nil t "unimplemented opcode") (incf eboy-clock-cycles ))
 
     ;; AND n - Logically AND n with A, result in A.
     ;; Flags affected:
