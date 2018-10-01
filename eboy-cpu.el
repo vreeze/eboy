@@ -1,7 +1,7 @@
 ;;; package -- Summary:
 ;;; Commentary:
 ;;; Code:
-(require 'eboy)
+;;(require 'eboy)
 
 (defvar eboy-cpu nil "All the cpu instruction functions.")
 (defvar eboy-cpu-cb nil "All the CB opcode cpu instruction functions.")
@@ -19,7 +19,7 @@
          (assert nil t "unimplemented opcode")
          (incf eboy-clock-cycles 8))
        (lambda nil "0x03 INC BC "
-         (assert nil t "unimplemented opcode")
+         (eboy-set-rBC (1+ (eboy-get-rBC)))
          (incf eboy-clock-cycles 8))
        (lambda nil "0x04 INC B "
          (eboy-add-byte eboy-rB 1)
@@ -42,10 +42,17 @@
          (eboy-inc-pc 1)
          (incf eboy-clock-cycles 8))
        (lambda nil "0x07 RLCA -/- "
-         (assert nil t "unimplemented opcode")
+         (let ((c (lsh eboy-rA -7)))
+           (setq eboy-rA (logior (lsh eboy-rA 1) c))
+           (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
+           (eboy-set-flag eboy-flags :N nil)
+           (eboy-set-flag eboy-flags :H nil)
+           (eboy-set-flag eboy-flags :C c)
+           )
          (incf eboy-clock-cycles 4))
        (lambda nil "0x08 LD (nn),SP"
-         (assert nil t "unimplemented opcode")
+         (eboy-mem-write-short (eboy-mem-read-short (eboy-get-byte)) eboy-sp)
+         (incf eboy-pc 2)
          (incf eboy-clock-cycles 20))
        (lambda nil "0x09 ADD HL,BC "
          (assert nil t "unimplemented opcode")
@@ -74,26 +81,16 @@
          (eboy-dec eboy-rC eboy-flags)
          (incf eboy-clock-cycles 4))
        (lambda nil "0x0E LD C, #0x%02x"
-         (setq eboy-rC
-               (eboy-get-byte))
+         (setq eboy-rC (eboy-get-byte))
          (eboy-inc-pc 1)
          (incf eboy-clock-cycles 8))
        (lambda nil "0x0F RRCA -/- "
-         (insert
-          (format " %s "
-                  (logand eboy-rA 1)))
-         (eboy-set-flag eboy-flags :C
-                        (=
-                         (logand eboy-rA 1)
-                         1))
-         (setq eboy-rA
-               (logand
-                (logior
-                 (lsh eboy-rA 1)
-                 (lsh eboy-rA -7))
-                255))
-         (eboy-set-flag eboy-flags :Z
-                        (= eboy-rA 0))
+         (let ((c (= (logand eboy-rA 1) 1)))
+           (setq eboy-rA (logand (logior (lsh eboy-rA -1) (lsh c 7)) #xFF))
+           (eboy-set-flag eboy-flags :C c)
+           (eboy-set-flag eboy-flags :Z (= eboy-rA 0))
+           (eboy-set-flag eboy-flags :N nil)
+           (eboy-set-flag eboy-flags :H nil))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x10 STOP -/- 10 "
          (assert nil t "unimplemented opcode")
@@ -114,7 +111,10 @@
            (eboy-get-rDE)))
          (incf eboy-clock-cycles 8))
        (lambda nil "0x14 INC D "
-         (assert nil t "unimplemented opcode")
+         (eboy-add-byte eboy-rD 1)
+         (eboy-set-flag eboy-flags :Z (zerop eboy-rD))
+         (eboy-set-flag eboy-flags :N nil)
+         (eboy-set-flag eboy-flags :H (< (logand eboy-rD #xf) (logand (1- eboy-rD) #xf)))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x15 DEC D "
          (eboy-dec eboy-rD eboy-flags)
@@ -199,9 +199,14 @@
          (eboy-inc-pc 1)
          (incf eboy-clock-cycles 8))
        (lambda nil "0x1F RRA -/- "
-         (assert nil t "unimplemented opcode")
+         (let ((c (= (logand eboy-rA #x01) 1)))
+           (setq eboy-rA (logand (logior (lsh eboy-rA -1) (lsh (if (eboy-get-flag eboy-flags :C) 1 0) 7)) #xff))
+           (eboy-set-flag eboy-flags :C c)
+           (eboy-set-flag eboy-flags :Z nil)
+           (eboy-set-flag eboy-flags :N nil)
+           (eboy-set-flag eboy-flags :H nil))
          (incf eboy-clock-cycles 4))
-       (lambda nil "0x20 JR NZ,* (%02d)"
+       (lambda nil "0x20 JR NZ,*"
          (if
              (null
               (eboy-get-flag eboy-flags :Z))
@@ -255,18 +260,18 @@
          (assert nil t "unimplemented opcode")
          (incf eboy-clock-cycles 4))
        (lambda nil "0x28 JR Z,* "
-         (if
-             (eboy-get-flag eboy-flags :Z)
+         (if (eboy-get-flag eboy-flags :Z)
              (progn
-               (setq eboy-pc
-                     (+ eboy-pc
-                        (eboy-byte-to-signed
-                         (eboy-get-byte))))
+               (setq eboy-pc (+ eboy-pc (eboy-byte-to-signed (eboy-get-byte))))
                (incf eboy-clock-cycles 4)))
          (incf eboy-pc)
          (incf eboy-clock-cycles 8))
        (lambda nil "0x29 ADD HL,HL "
-         (assert nil t "unimplemented opcode")
+         (let ((hl (eboy-get-rHL)))
+           (eboy-set-rHL (* 2 hl))
+           (eboy-set-flag eboy-flags :N nil)
+           (eboy-set-flag eboy-flags :H (< (logand (eboy-get-rHL) #xfff) (logand hl #xfff)))
+           (eboy-set-flag eboy-flags :C (< (logand (eboy-get-rHL) #xffff) (logand hl #xffff))))
          (incf eboy-clock-cycles 8))
        (lambda nil "0x2A LD A,(HLI)"
          (setq eboy-rA
@@ -307,7 +312,12 @@
          (eboy-set-flag eboy-flags :H t)
          (incf eboy-clock-cycles 4))
        (lambda nil "0x30 JR NC,* "
-         (assert nil t "unimplemented opcode"))
+         (if (null (eboy-get-flag eboy-flags :C))
+             (progn
+               (setq eboy-pc (+ eboy-pc (eboy-byte-to-signed (eboy-get-byte))))
+               (incf eboy-clock-cycles 4)))
+         (incf eboy-pc)
+         (incf eboy-clock-cycles 8))
        (lambda nil "0x31 LD SP, $%04x"
          (setq eboy-sp
                (eboy-get-short))
@@ -362,7 +372,12 @@
          (assert nil t "unimplemented opcode")
          (incf eboy-clock-cycles 4))
        (lambda nil "0x38 JR C,* "
-         (assert nil t "unimplemented opcode"))
+         (if (eboy-get-flag eboy-flags :C)
+             (progn
+               (setq eboy-pc (+ eboy-pc (eboy-byte-to-signed (eboy-get-byte))))
+               (incf eboy-clock-cycles 4)))
+         (incf eboy-pc)
+         (incf eboy-clock-cycles 8))
        (lambda nil "0x39 ADD HL,SP "
          (assert nil t "unimplemented opcode")
          (incf eboy-clock-cycles 8))
@@ -414,7 +429,7 @@
          (assert nil t "unimplemented opcode")
          (incf eboy-clock-cycles 4))
        (lambda nil "0x46 LD B,(HL)"
-         (assert nil t "unimplemented opcode")
+         (setq eboy-rB (eboy-mem-read-byte (eboy-get-rHL)))
          (incf eboy-clock-cycles 8))
        (lambda nil "0x47 LD B,A"
          (setq eboy-rB eboy-rA)
@@ -438,7 +453,7 @@
          (assert nil t "unimplemented opcode")
          (incf eboy-clock-cycles 4))
        (lambda nil "0x4E LD C,(HL)"
-         (assert nil t "unimplemented opcode")
+         (setq eboy-rC (eboy-mem-read-byte (eboy-get-rHL)))
          (incf eboy-clock-cycles 8))
        (lambda nil "0x4F LD C,A (0x%02x)"
          (setq eboy-rC eboy-rA)
@@ -541,7 +556,7 @@
          (assert nil t "unimplemented opcode")
          (incf eboy-clock-cycles 8))
        (lambda nil "0x6F LD L,A"
-         (assert nil t "unimplemented opcode")
+         (setq eboy-rL eboy-rA)
          (incf eboy-clock-cycles 4))
        (lambda nil "0x70 LD (HL),B"
          (assert nil t "unimplemented opcode")
@@ -663,7 +678,12 @@
          (assert nil t "unimplemented opcode")
          (incf eboy-clock-cycles 4))
        (lambda nil "0x8D ADC A,L"
-         (assert nil t "unimplemented opcode")
+         (let ((c (if (eboy-get-flag eboy-flags :C) 1 0)))
+           (eboy-set-flag eboy-flags :N nil)
+           (eboy-set-flag eboy-flags :H (>= (+ (logand eboy-rA #xF) (logand eboy-rL #xF) c) #x10))
+           (eboy-set-flag eboy-flags :C (>= (+ eboy-rA eboy-rL c) #x100))
+           (eboy-add-byte eboy-rA (+ eboy-rA eboy-rL c))
+           (eboy-set-flag eboy-flags :Z (zerop eboy-rA)))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x8E ADC A,(HL)"
          (assert nil t "unimplemented opcode")
@@ -674,19 +694,11 @@
        (lambda nil "0x90 SUB B"
          (let
              ((oldval eboy-rA))
-           (eboy-add-byte eboy-rA
-                          (* -1 eboy-rB))
-           (eboy-set-flag eboy-flags :Z
-                          (zerop eboy-rA))
+           (eboy-add-byte eboy-rA (* -1 eboy-rB))
+           (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
            (eboy-set-flag eboy-flags :N t)
-           (eboy-set-flag eboy-flags :H
-                          (>
-                           (logand eboy-rA 15)
-                           (logand oldval 15)))
-           (eboy-set-flag eboy-flags :C
-                          (>
-                           (logand eboy-rA 255)
-                           (logand oldval 255))))
+           (eboy-set-flag eboy-flags :H (> (logand eboy-rA 15) (logand oldval 15)))
+           (eboy-set-flag eboy-flags :C (> (logand eboy-rA 255) (logand oldval 255))))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x91 SUB C"
          (assert nil t "unimplemented opcode")
@@ -794,13 +806,15 @@
          (assert nil t "unimplemented opcode")
          (incf eboy-clock-cycles 4))
        (lambda nil "0xAE XOR (HL) "
-         (assert nil t "unimplemented opcode")
+         (setq eboy-rA (logxor eboy-rA (eboy-mem-read-byte (eboy-get-rHL))))
+         (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
+         (eboy-set-flag eboy-flags :N nil)
+         (eboy-set-flag eboy-flags :H nil)
+         (eboy-set-flag eboy-flags :C nil)
          (incf eboy-clock-cycles 8))
        (lambda nil "0xAF XOR A "
-         (setq eboy-rA
-               (logxor eboy-rA eboy-rA))
-         (eboy-set-flag eboy-flags :Z
-                        (zerop eboy-rA))
+         (setq eboy-rA (logxor eboy-rA eboy-rA))
+         (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
          (eboy-set-flag eboy-flags :N nil)
          (eboy-set-flag eboy-flags :H nil)
          (eboy-set-flag eboy-flags :C nil)
@@ -839,7 +853,11 @@
          (assert nil t "unimplemented opcode")
          (incf eboy-clock-cycles 8))
        (lambda nil "0xB7 OR A"
-         (assert nil t "unimplemented opcode")
+         (setq eboy-rA (logior eboy-rA eboy-rA))
+         (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
+         (eboy-set-flag eboy-flags :N nil)
+         (eboy-set-flag eboy-flags :H nil)
+         (eboy-set-flag eboy-flags :C nil)
          (incf eboy-clock-cycles 4))
        (lambda nil "0xB8 CP B "
          (assert nil t "unimplemented opcode")
@@ -904,7 +922,16 @@
                 (eboy-get-short)))
          (incf eboy-clock-cycles 16))
        (lambda nil "0xC4 CALL NZ,nn "
-         (assert nil t "unimplemented opcode"))
+         (if (null (eboy-get-flag eboy-flags :Z))
+             (progn
+               (decf eboy-sp 2)
+               (eboy-mem-write-short eboy-sp (+ eboy-pc 3))
+               (setq eboy-pc (eboy-get-short))
+               (incf eboy-clock-cycles 24)
+               )
+           (incf eboy-pc 2)
+           (incf eboy-clock-cycles 12)
+           ))
        (lambda nil "0xC5 PUSH BC"
          (decf eboy-sp 2)
          (eboy-mem-write-short eboy-sp
@@ -926,6 +953,7 @@
                           (<
                            (logand eboy-rA 255)
                            (logand rAold 255))))
+         (incf eboy-pc 1)
          (incf eboy-clock-cycles 8))
        (lambda nil "0xC7 RST 00H  "
          (assert nil t "unimplemented opcode")
@@ -998,7 +1026,14 @@
                                (eboy-get-rDE))
          (incf eboy-clock-cycles 12))
        (lambda nil "0xD6 SUB #"
-         (assert nil t "unimplemented opcode")
+         (let ((oldval eboy-rA))
+           (eboy-add-byte eboy-rA (* -1 (eboy-get-byte)))
+           (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
+           (eboy-set-flag eboy-flags :N t)
+           (eboy-set-flag eboy-flags :H (> (logand eboy-rA #x0F) (logand oldval #x0F)))
+           (eboy-set-flag eboy-flags :C (> (logand eboy-rA #xFF) (logand oldval #xFF)))
+           )
+         (incf eboy-pc 1)
          (incf eboy-clock-cycles 8))
        (lambda nil "0xD7 RST 10H  "
          (assert nil t "unimplemented opcode")
@@ -1103,7 +1138,8 @@
                 (+ 65280
                    (eboy-get-byte))))
          (eboy-inc-pc 1)
-         (incf eboy-clock-cycles 12))
+         (incf eboy-clock-cycles 12)
+         (insert (format " %x" eboy-rA)))
        (lambda nil "0xF1 POP AF"
          (let
              ((data
@@ -1244,8 +1280,7 @@
                    (if
                        (eboy-get-flag eboy-flags :C)
                        1 0)))
-            (eboy-set-flag eboy-flags :Z
-                           (zerop eboy-rC))
+            (eboy-set-flag eboy-flags :Z (zerop eboy-rC))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
             (eboy-set-flag eboy-flags :C c))
@@ -1275,7 +1310,12 @@
           (assert nil t "unimplemented opcode")
           (incf eboy-clock-cycles 8))
         (lambda nil "0x1A RR D"
-          (assert nil t "unimplemented opcode")
+          (let ((c (logand eboy-rD #x01)))
+            (setq eboy-rD (logior (lsh eboy-rD -1)) (if (eboy-get-flag eboy-flags :C) 1 0))
+            (eboy-set-flag eboy-flags :Z (zerop eboy-rD))
+            (eboy-set-flag eboy-flags :N nil)
+            (eboy-set-flag eboy-flags :H nil)
+            (eboy-set-flag eboy-flags :C c))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x1B RR E"
           (assert nil t "unimplemented opcode")
@@ -1314,7 +1354,11 @@
           (assert nil t "unimplemented opcode")
           (incf eboy-clock-cycles 16))
         (lambda nil "0x27 SLA A"
-          (assert nil t "unimplemented opcode")
+          (eboy-set-flag eboy-flags :C (lsh eboy-rA -7))
+          (setq eboy-rA (lsh eboy-rA -1))
+          (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
+          (eboy-set-flag eboy-flags :N nil)
+          (eboy-set-flag eboy-flags :H nil)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x28 SRA B"
           (assert nil t "unimplemented opcode")
@@ -1362,20 +1406,18 @@
           (assert nil t "unimplemented opcode")
           (incf eboy-clock-cycles 16))
         (lambda nil "0x37 SWAP A"
-          (setq eboy-rA
-                (logand
-                 (logior
-                  (lsh eboy-rA 4)
-                  (lsh eboy-rA -4))
-                 255))
-          (eboy-set-flag eboy-flags :Z
-                         (zerop eboy-rA))
+          (setq eboy-rA (logand (logior (lsh eboy-rA 4) (lsh eboy-rA -4)) 255))
+          (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H nil)
           (eboy-set-flag eboy-flags :C nil)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x38 SRL B"
-          (assert nil t "unimplemented opcode")
+          (eboy-set-flag eboy-flags :C (logand eboy-rB #x01))
+          (setq eboy-rB (lsh eboy-rB -1))
+          (eboy-set-flag eboy-flags :Z (zerop eboy-rB))
+          (eboy-set-flag eboy-flags :H nil)
+          (eboy-set-flag eboy-flags :N nil)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x39 SRL C"
           (assert nil t "unimplemented opcode")

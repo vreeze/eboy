@@ -38,11 +38,23 @@ Return the binary data as unibyte string."
 (defvar eboy-interrupt-pending #x00 "Flags of pending interrupts.")
 (defvar eboy-interrupt-enabled #x00 "Flags of enabled interrupts.")
 (defvar eboy-boot-rom-disabled-p nil "After boot disable the boot rom.")
-(defvar eboy-clock-cycles 0 "Number of elapsed clock cycles.") ;; when to reset?
+(defvar eboy-clock-cycles 0 "Number of elapsed clock cycles.") ;; TODO: when to reset?
 (defvar eboy-display-write-done nil "Indicate if at line 143 we need to write the display.")
 (defvar eboy-lcd-ly nil "The LCDC Y Coordinate.")
 (defvar eboy-lcd-scrollx nil "The LCDC Scroll X register.")
 (defvar eboy-lcd-scrolly nil "The LCDC Scroll Y register.")
+
+;; LCD Control Register
+(defvar eboy-lcdc-display-enable nil "LCD Control register - lcd display enabled.")
+(defvar eboy-lcdc-window-tile-map nil "LCD Control register - Window Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF).")
+(defvar eboy-lcdc-window-display-enable nil "LCD Control register - Window display enabled.")
+(defvar eboy-lcdc-bg-window-tile nil "LCD Control register - BG & Window Tile Data select.")
+(defvar eboy-lcdc-bg-tile-map-display nil "LCD Control register - BG Tile Map Display Select.")
+(defvar eboy-lcdc-obj-size nil "LCD Control register - OBJ (sprite) Size.")
+(defvar eboy-lcdc-obj-disp-en nil "LCD Control register - OBJ (Sprite) Display Enable.")
+(defvar eboy-lcdc-bg-enable nil "LCD Control register - BG Display.")
+
+
 (defvar eboy-delay-enabling-interrupt-p nil "Enabling interrupts is delayd with one instruction.")
 
 ;;(defvar eboy-flags (make-bool-vector 4 t) "The flags Z(Zero) S(Negative) H(Halve Carry) and C(Carry).")
@@ -248,13 +260,23 @@ Return the binary data as unibyte string."
        ;;((= address #xFF46) (eboy-msg "Read DMA: DMA Transfer and Start Address.") )
        ((= address #xFF45) (eboy-msg "Read LYC: LY Compare.") )
        ((= address #xFF44) (eboy-msg "Read LY: LCDC Y Coordinate.")
-        (setq data eboy-lcd-ly))
+        ;; if lcd is on then eboy-lcd-y, else 0
+        (setq data (if eboy-lcdc-display-enable eboy-lcd-ly 0)))
        ((= address #xFF43) (eboy-msg "Read SCX: Scroll X.")
         (setq data eboy-lcd-scrollx))
        ((= address #xFF42) (eboy-msg "Read SCY: Scroll Y.")
         (setq data eboy-lcd-scrolly))
        ((= address #xFF41) (eboy-msg "Read STAT: LCDC Status.") )
-       ((= address #xFF40) (eboy-msg "Read LCDC: LCD Control.") )
+       ((= address #xFF40) (eboy-msg "Read LCDC: LCD Control.")
+        (setq data (logior (lsh (if eboy-lcdc-display-enable 1 0) -7)
+                           (lsh (if (eboy-lcdc-window-tile-map) 1 0) -6)
+                           (lsh (if (eboy-lcdc-window-display-enable) 1 0) -5)
+                           (lsh (if (eboy-lcdc-bg-window-tile) 1 0) -4)
+                           (lsh (if (eboy-lcdc-bg-tile-map-display) 1 0) -3)
+                           (lsh (if (eboy-lcdc-obj-size) 1 0) -2)
+                           (lsh (if (eboy-lcdc-obj-disp-en) 1 0) -1)
+                           (if (eboy-lcdc-bg-enable) 1 0)))
+        )
        ;; in between sound registers, but not consecutive, some unknow address.
        ((= address #xFF0F)
         (eboy-msg "Read IF: Interrupt Flag.")
@@ -361,7 +383,16 @@ Return the binary data as unibyte string."
       ;;(message "scroll y %d" data)
       )
      ((= address #xFF41) (eboy-msg "Write STAT: LCDC Status.") )
-     ((= address #xFF40) (eboy-msg "Write LCDC: LCD Control.") )
+     ((= address #xFF40) (eboy-msg "Write LCDC: LCD Control.")
+      (setq eboy-lcdc-display-enable (logand data #x80) )
+      (setq eboy-lcdc-window-tile-map (logand data #x40) )
+      (setq eboy-lcdc-window-display-enable (logand data #x20) )
+      (setq eboy-lcdc-bg-window-tile (logand data #x10) )
+      (setq eboy-lcdc-bg-tile-map-display (logand data #x08) )
+      (setq eboy-lcdc-obj-size (logand data #x04) )
+      (setq eboy-lcdc-obj-disp-en (logand data #x02) )
+      (setq eboy-lcdc-bg-enable (logand data #x01) )
+      )
      ;; in between sound registers, but not consecutive, some unknow address.
      ((= address #xFF0F) (progn (eboy-msg (format "Write IF: Interrupt Flag. #%02x" data))
                                 (if (= 1 (logand data eboy-im-vblank)) (eboy-msg "if V-Blank"))
@@ -707,16 +738,17 @@ static char *frame[] = {
 
 (defun eboy-lcd-cycle ()
   "Perform a single lcd cycle."
-  (let ((screen-cycle (mod eboy-clock-cycles 70224)))
-    (setq eboy-lcd-ly (/ screen-cycle 456))
-    (when (and (= eboy-lcd-ly 143) (not eboy-display-write-done))
-      (eboy-write-display-unicode)
-      (setq eboy-display-write-done t))
-    (when (and (= eboy-lcd-ly 144) eboy-display-write-done)
-      (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-vblank))
-      (setq eboy-display-write-done nil)
-        )
-    )
+  (if eboy-lcdc-display-enable
+      (let ((screen-cycle (mod eboy-clock-cycles 70224)))
+        (setq eboy-lcd-ly (/ screen-cycle 456))
+        (when (and (= eboy-lcd-ly 143) (not eboy-display-write-done))
+          (eboy-write-display-unicode)
+          (setq eboy-display-write-done t))
+        (when (and (= eboy-lcd-ly 144) eboy-display-write-done)
+          (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-vblank))
+          (setq eboy-display-write-done nil)
+          )
+        ))
   )
 
  ;; assuming data table 0 for now
@@ -740,7 +772,8 @@ static char *frame[] = {
 
 (defun eboy-process-opcode (opcode flags)
   "Process OPCODE, cpu FLAGS state."
-  (if eboy-debug-1 (insert (format "\npc: 0x%x, opcode: 0x%02x, 0x%x" eboy-pc opcode eboy-clock-cycles)))
+  ;(if eboy-debug-1 (insert (format "\n0x%x, pc: 0x%x, opcode: 0x%02x" eboy-clock-cycles eboy-pc opcode)))
+  (if eboy-debug-1 (insert (format "\npc: 0x%x, opcode: 0x%02x" eboy-pc opcode)))
   (funcall (nth opcode eboy-cpu))
   (eboy-inc-pc 1)
   )
@@ -808,8 +841,8 @@ static char *frame[] = {
     (eboy-init-memory)
     (setq eboy-boot-rom-disabled-p t)
     )
-  (setq eboy-rom-filename "roms/test_rom.gb")
-  ;;(setq eboy-rom-filename "cpu_instrs/individual/01-special.gb")
+  ;;(setq eboy-rom-filename "roms/test_rom.gb")
+  (setq eboy-rom-filename "cpu_instrs/cpu_instrs.gb")
   (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
   (setq eboy-rom-size (length eboy-rom))
   (setq eboy-clock-cycles 0)
