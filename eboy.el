@@ -269,19 +269,17 @@ Return the binary data as unibyte string."
        ((= address #xFF41) (eboy-msg "Read STAT: LCDC Status.") )
        ((= address #xFF40) (eboy-msg "Read LCDC: LCD Control.")
         (setq data (logior (lsh (if eboy-lcdc-display-enable 1 0) -7)
-                           (lsh (if (eboy-lcdc-window-tile-map) 1 0) -6)
-                           (lsh (if (eboy-lcdc-window-display-enable) 1 0) -5)
-                           (lsh (if (eboy-lcdc-bg-window-tile) 1 0) -4)
-                           (lsh (if (eboy-lcdc-bg-tile-map-display) 1 0) -3)
-                           (lsh (if (eboy-lcdc-obj-size) 1 0) -2)
-                           (lsh (if (eboy-lcdc-obj-disp-en) 1 0) -1)
-                           (if (eboy-lcdc-bg-enable) 1 0)))
-        )
+                           (lsh (if eboy-lcdc-window-tile-map 1 0) -6)
+                           (lsh (if eboy-lcdc-window-display-enable 1 0) -5)
+                           (lsh (if eboy-lcdc-bg-window-tile 1 0) -4)
+                           (lsh (if eboy-lcdc-bg-tile-map-display 1 0) -3)
+                           (lsh (if eboy-lcdc-obj-size 1 0) -2)
+                           (lsh (if eboy-lcdc-obj-disp-en 1 0) -1)
+                           (if eboy-lcdc-bg-enable 1 0))))
        ;; in between sound registers, but not consecutive, some unknow address.
        ((= address #xFF0F)
         (eboy-msg "Read IF: Interrupt Flag.")
-        (setq data eboy-interrupt-pending)
-        )
+        (setq data eboy-interrupt-pending))
        ((= address #xFF07) (eboy-msg "Read TAC: Timer Control.") )
        ((= address #xFF06) (eboy-msg "Read TMA: Timer Modulo.") )
        ((= address #xFF05) (eboy-msg "Read TIMA: Timer Counter.") )
@@ -291,12 +289,8 @@ Return the binary data as unibyte string."
        ((= address #xFF00) (eboy-msg "Read P1: Joy Pad info and system type register.")
         (cond
          ((= (logand (lognot data) #x10) #x10) (eboy-msg "Direction keys selected") (setq data #x0F))
-         ((= (logand (lognot data) #x20) #x20) (eboy-msg "Button keys selected") (setq data #x0F))
-         )
-        ))
-      data
-      )
-    )
+         ((= (logand (lognot data) #x20) #x20) (eboy-msg "Button keys selected") (setq data #x0F)))))
+      data))
 
    ((and (>= address #xFEA0) (< address #xFF00))
     ;;(message "Empty but unusable for I/O")
@@ -742,7 +736,7 @@ static char *frame[] = {
       (let ((screen-cycle (mod eboy-clock-cycles 70224)))
         (setq eboy-lcd-ly (/ screen-cycle 456))
         (when (and (= eboy-lcd-ly 143) (not eboy-display-write-done))
-          (eboy-write-display-unicode)
+          ;(eboy-write-display-unicode)
           (setq eboy-display-write-done t))
         (when (and (= eboy-lcd-ly 144) eboy-display-write-done)
           (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-vblank))
@@ -772,14 +766,15 @@ static char *frame[] = {
 
 (defun eboy-process-opcode (opcode flags)
   "Process OPCODE, cpu FLAGS state."
-  ;(if eboy-debug-1 (insert (format "\n0x%x, pc: 0x%x, opcode: 0x%02x" eboy-clock-cycles eboy-pc opcode)))
-  (if eboy-debug-1 (insert (format "\npc: 0x%x, opcode: 0x%02x" eboy-pc opcode)))
-  (funcall (nth opcode eboy-cpu))
-  (eboy-inc-pc 1)
+  (if eboy-cpu-halted
+      (eboy-inc-pc 1)
+
+    (if eboy-debug-1 (insert (format "\n0x%x, pc: 0x%x, opcode: 0x%02x" eboy-clock-cycles eboy-pc opcode)))
+    ;(if eboy-debug-1 (insert (format "\npc: 0x%x, opcode: 0x%02x" eboy-pc opcode)))
+    (funcall (nth opcode eboy-cpu))
+    (eboy-inc-pc 1))
   )
 
-
-;;(message (format "%x" (logand #xFF (lognot eboy-im-vblank))))
 (defun eboy-disable-interrupt (interrupt-mask)
   "Remove the interrupt flag for INTERRUPT-MASK."
   (setq eboy-interrupt-pending (logand eboy-interrupt-pending (lognot interrupt-mask)))
