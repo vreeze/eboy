@@ -62,6 +62,9 @@ Return the binary data as unibyte string."
 (defvar eboy-debug-1 t "Enable debugging info.")
 (defvar eboy-debug-2 nil "Enable debugging info.")
 (defvar eboy-debug-pc-max nil "The program counter max.")
+(defvar eboy-debug-fps-timestamp (time-to-seconds (current-time)) "The FPS calculation.")
+(defvar eboy-debug-nr-of-frames 0 "The number of frames processed since FPS calculation.")
+(defvar eboy-debug-last-log-line "" "The last log line.")
 
 (defvar eboy-rA 0 "Register A.")
 (defvar eboy-rB 0 "Register B.")
@@ -712,8 +715,7 @@ static char *frame[] = {
   (erase-buffer)
   (insert (propertize " " 'display (create-image (eboy-get-XPM-string) 'xpm t)))
   (deactivate-mark)
-  (redisplay)
-  )
+  (redisplay))
 
 (defun eboy-write-display-unicode ()
   "Write the display as unicode characters."
@@ -722,13 +724,10 @@ static char *frame[] = {
   (erase-buffer)
   (dotimes (y 144)
     (dotimes (x 160)
-      (insert (gethash (eboy-get-color-xy (mod (+ x eboy-lcd-scrollx) 256) (mod (+ y eboy-lcd-scrolly) 256)) eboy-display-unicode-table))
-      )
-    (insert "\n")
-    )
+      (insert (gethash (eboy-get-color-xy (mod (+ x eboy-lcd-scrollx) 256) (mod (+ y eboy-lcd-scrolly) 256)) eboy-display-unicode-table)))
+    (insert "\n"))
   (goto-char (point-min))
-  (redisplay)
-  )
+  (redisplay))
 
 (defun eboy-lcd-cycle ()
   "Perform a single lcd cycle."
@@ -736,15 +735,22 @@ static char *frame[] = {
       (let ((screen-cycle (mod eboy-clock-cycles 70224)))
         (setq eboy-lcd-ly (/ screen-cycle 456))
         (when (and (= eboy-lcd-ly 143) (not eboy-display-write-done))
-          ;(eboy-write-display-unicode)
+          ;; (eboy-write-display-unicode)
+          (eboy-debug-update-fps)
           (setq eboy-display-write-done t))
         (when (and (= eboy-lcd-ly 144) eboy-display-write-done)
           (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-vblank))
           (setq eboy-display-write-done nil)
-          )
-        ))
-  )
-
+          ))))
+(defun eboy-debug-update-fps ()
+  "Update the Frames Per Second counter."
+  (incf eboy-debug-nr-of-frames)
+  (when (> (time-to-seconds (current-time)) (+ 2 eboy-debug-fps-timestamp))
+    (setq eboy-debug-fps-timestamp (time-to-seconds (current-time)))
+    (message "FPS: %d" (/ eboy-debug-nr-of-frames 2))
+    (setq eboy-debug-nr-of-frames 0)
+    (eboy-write-display-unicode)
+    ))
  ;; assuming data table 0 for now
 ;;(eboy-get-tile-nr 17 11)
 
@@ -769,8 +775,13 @@ static char *frame[] = {
   (if eboy-cpu-halted
       (eboy-inc-pc 1)
 
-    (if eboy-debug-1 (insert (format "\n0x%x, pc: 0x%x, opcode: 0x%02x" eboy-clock-cycles eboy-pc opcode)))
-    ;(if eboy-debug-1 (insert (format "\npc: 0x%x, opcode: 0x%02x" eboy-pc opcode)))
+    (setq eboy-debug-last-log-line (format "0x%x, pc: 0x%x, opcode: 0x%02x, f: 0x%02x A: 0x%02x B: 0x%02x C: 0x%02x D: 0x%02x E: 0x%02x H: 0x%02x L: 0x%02x" eboy-clock-cycles eboy-pc opcode (eboy-flags-to-byte eboy-flags) eboy-rA eboy-rB eboy-rC eboy-rD eboy-rE eboy-rH eboy-rL))
+
+    (when (> eboy-debug-nr-instructions 629290)
+        (if eboy-debug-1 (insert eboy-debug-last-log-line)))
+    ;;(if eboy-debug-1 (insert (format "\npc: 0x%x, opcode: 0x%02x" eboy-pc opcode)))
+    ;;(if eboy-debug-1 (insert (format "\n0x%02x" eboy-pc)))
+    ;;(if eboy-debug-1 (insert (format "\n0x%x, pc: 0x%x, opcode: 0x%02x, f: 0x%02x" eboy-clock-cycles eboy-pc opcode (eboy-flags-to-byte eboy-flags))))
     (funcall (nth opcode eboy-cpu))
     (eboy-inc-pc 1))
   )
@@ -824,7 +835,7 @@ static char *frame[] = {
 (defun eboy-load-rom ()
   "Load the rom file.  For now just automatically load a test rom."
   (interactive)
-  (if nil
+  (if t
       (progn
         (setq eboy-boot-rom-filename "boot/DMG_ROM.bin")
         (setq eboy-boot-rom (vconcat (eboy-read-bytes eboy-boot-rom-filename)))
@@ -836,17 +847,17 @@ static char *frame[] = {
     (eboy-init-memory)
     (setq eboy-boot-rom-disabled-p t)
     )
-  ;;(setq eboy-rom-filename "roms/test_rom.gb")
-  (setq eboy-rom-filename "cpu_instrs/cpu_instrs.gb")
+  (setq eboy-rom-filename "roms/test_rom.gb")
+  ;;(setq eboy-rom-filename "cpu_instrs/cpu_instrs.gb")
   (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
   (setq eboy-rom-size (length eboy-rom))
   (setq eboy-clock-cycles 0)
   (setq eboy-debug-nr-instructions 0)
   (setq eboy-debug-pc-max 0)
   (setq eboy-lcd-ly 0)
-  (switch-to-buffer "*eboy*")
+  ;;(switch-to-buffer "*eboy*")
   (switch-to-buffer "*eboy-display*")
-  (erase-buffer)
+  ;;(erase-buffer)
   (if eboy-debug-1 (eboy-log (format "Load rom: %s\n" eboy-rom-filename)))
   (if eboy-debug-1 (eboy-log (format "Rom size: %d bytes\n" eboy-rom-size)))
   (if eboy-debug-1 (eboy-log (format "Rom title: %s\n" (eboy-rom-title))))
@@ -875,7 +886,7 @@ static char *frame[] = {
 (defun eboy-debug-step ()
   "docstring"
   (interactive)
-  (switch-to-buffer "*eboy-debug*")
+  ;;(switch-to-buffer "*eboy-debug*")
   (eboy-process-opcode (eboy-mem-read-byte eboy-pc) eboy-flags)
   (eboy-process-interrupts)
   (eboy-lcd-cycle)
