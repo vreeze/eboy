@@ -6,6 +6,7 @@
 
 
 ;;; Code:
+;;(load "eboy-cpu.el")
 (require 'eboy-cpu)
 
 (defun eboy-read-bytes (path)
@@ -46,13 +47,13 @@ Return the binary data as unibyte string."
 
 ;; LCD Control Register
 (defvar eboy-lcdc-display-enable nil "LCD Control register - lcd display enabled.")
-(defvar eboy-lcdc-window-tile-map nil "LCD Control register - Window Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF).")
+(defvar eboy-lcdc-window-tile-map-select nil "LCD Control register - Window Tile Map Display Select (nil=9800-9BFF, t=9C00-9FFF).")
 (defvar eboy-lcdc-window-display-enable nil "LCD Control register - Window display enabled.")
-(defvar eboy-lcdc-bg-window-tile nil "LCD Control register - BG & Window Tile Data select.")
-(defvar eboy-lcdc-bg-tile-map-display nil "LCD Control register - BG Tile Map Display Select.")
-(defvar eboy-lcdc-obj-size nil "LCD Control register - OBJ (sprite) Size.")
-(defvar eboy-lcdc-obj-disp-en nil "LCD Control register - OBJ (Sprite) Display Enable.")
-(defvar eboy-lcdc-bg-enable nil "LCD Control register - BG Display.")
+(defvar eboy-lcdc-bg-&-window-tile-data-select nil "LCD Control register - BG & Window Tile Data select (nil: 8800-97FF, t:8000-8FFF).")
+(defvar eboy-lcdc-bg-tile-map-display-select nil "LCD Control register - BG Tile Map Display Select (nil: 9800-9BFF, t:9C00-9FFF).")
+(defvar eboy-lcdc-obj-size nil "LCD Control register - OBJ (sprite) Size.  (nil: 8*8, t: 8*16).")
+(defvar eboy-lcdc-obj-disp-on nil "LCD Control register - OBJ (Sprite) Display On.")
+(defvar eboy-lcdc-bg-window-on nil "LCD Control register - BG & Window Display On.")
 
 
 (defvar eboy-delay-enabling-interrupt-p nil "Enabling interrupts is delayd with one instruction.")
@@ -272,13 +273,13 @@ Return the binary data as unibyte string."
        ((= address #xFF41) (eboy-msg "Read STAT: LCDC Status.") )
        ((= address #xFF40) (eboy-msg "Read LCDC: LCD Control.")
         (setq data (logior (lsh (if eboy-lcdc-display-enable 1 0) -7)
-                           (lsh (if eboy-lcdc-window-tile-map 1 0) -6)
+                           (lsh (if eboy-lcdc-window-tile-map-select 1 0) -6)
                            (lsh (if eboy-lcdc-window-display-enable 1 0) -5)
-                           (lsh (if eboy-lcdc-bg-window-tile 1 0) -4)
-                           (lsh (if eboy-lcdc-bg-tile-map-display 1 0) -3)
+                           (lsh (if eboy-lcdc-bg-&-window-tile-data-select 1 0) -4)
+                           (lsh (if eboy-lcdc-bg-tile-map-display-select 1 0) -3)
                            (lsh (if eboy-lcdc-obj-size 1 0) -2)
-                           (lsh (if eboy-lcdc-obj-disp-en 1 0) -1)
-                           (if eboy-lcdc-bg-enable 1 0))))
+                           (lsh (if eboy-lcdc-obj-disp-on 1 0) -1)
+                           (if eboy-lcdc-bg-window-on 1 0))))
        ;; in between sound registers, but not consecutive, some unknow address.
        ((= address #xFF0F)
         (eboy-msg "Read IF: Interrupt Flag.")
@@ -381,15 +382,14 @@ Return the binary data as unibyte string."
       )
      ((= address #xFF41) (eboy-msg "Write STAT: LCDC Status.") )
      ((= address #xFF40) (eboy-msg "Write LCDC: LCD Control.")
-      (setq eboy-lcdc-display-enable (logand data #x80) )
-      (setq eboy-lcdc-window-tile-map (logand data #x40) )
-      (setq eboy-lcdc-window-display-enable (logand data #x20) )
-      (setq eboy-lcdc-bg-window-tile (logand data #x10) )
-      (setq eboy-lcdc-bg-tile-map-display (logand data #x08) )
-      (setq eboy-lcdc-obj-size (logand data #x04) )
-      (setq eboy-lcdc-obj-disp-en (logand data #x02) )
-      (setq eboy-lcdc-bg-enable (logand data #x01) )
-      )
+      (setq eboy-lcdc-display-enable (= (logand data #x80) #x80))
+      (setq eboy-lcdc-window-tile-map-select (= (logand data #x40) #x40) )
+      (setq eboy-lcdc-window-display-enable (= (logand data #x20) #x20) )
+      (setq eboy-lcdc-bg-&-window-tile-data-select (= (logand data #x10) #x10) )
+      (setq eboy-lcdc-bg-tile-map-display-select (= (logand data #x08) #x08) )
+      (setq eboy-lcdc-obj-size (= (logand data #x04) #x04) )
+      (setq eboy-lcdc-obj-disp-on (= (logand data #x02) #x02) )
+      (setq eboy-lcdc-bg-window-on (= (logand data #x01) #x01) ))
      ;; in between sound registers, but not consecutive, some unknow address.
      ((= address #xFF0F) (progn (eboy-msg (format "Write IF: Interrupt Flag. #%02x" data))
                                 (if (= 1 (logand data eboy-im-vblank)) (eboy-msg "if V-Blank"))
@@ -617,42 +617,30 @@ Little Endian."
 ;; ⇒ 1 (x,y) -> tile-number -> tile-id -> 2 bytes for a line y.
 (defun eboy-window-tile-map-selected-addr ()
   "docstring"
-  (interactive)
-  (if (= #x00 (logand (eboy-mem-read-byte #xFF40) #x40))
-      #x9800
-    #x9c00)
-  )
-(defun eboy-bg-&-window-tile-data-selected-addr ()
-  "docstring"
-  (interactive)
-  (if (= #x00 (logand (eboy-mem-read-byte #xFF40) #x10))
-      #x8800
-    #x8000)
-  )
-(defun eboy-bg-tile-map-selected-addr ()
-  "docstring"
-  (interactive)
-  (if (= #x00 (logand (eboy-mem-read-byte #xFF40) #x08))
-      #x9800
-    #x9c00)
-  )
+  (if eboy-lcdc-window-tile-map-select
+      #x9C00
+    #x9800))
+
+(defun eboy-bg-&-window-tile-data-selected-addr (tileid)
+  "Get the TILEID data address."
+  (if eboy-lcdc-bg-&-window-tile-data-select
+      (+ #x8000 (* tileid 16))
+    (+ #x8800 (* (eboy-byte-to-signed tileid) 16))))
 
 (defun eboy-get-tile-nr (x y)
   "Given a X Y coordinate, return tile number."
-  (+ (/ x 8) (* (/ y 8) 32))
-  )
+  (+ (/ x 8) (* (/ y 8) 32)))
 ;; (eboy-get-tile-nr 255 255) ; ⇒ 1023
 
 (defun eboy-get-tile-id (tile-nr)
   "Get tile id from Background Tile Map using the TILE-NR."
-  (eboy-mem-read-byte (+ (eboy-bg-tile-map-selected-addr) tile-nr)) ; assuming tile map 0 for now
-  )
+  (eboy-mem-read-byte (+ (if eboy-lcdc-bg-tile-map-display-select #x9C00 #x9800) tile-nr)))
+
 (defun eboy-get-color-xy (x y)
   "Get the color for coordinate X, Y from the bg & window tile data."
-  (let ((tile-line-addr (+ (+ (eboy-bg-&-window-tile-data-selected-addr) (* (eboy-get-tile-id(eboy-get-tile-nr x y)) 16)) (* (mod y 8) 2))))
-    (eboy-get-color (eboy-mem-read-byte tile-line-addr) (eboy-mem-read-byte (1+ tile-line-addr)) x )
-    )
-  )
+  (let ((tile-line-addr (+ (eboy-bg-&-window-tile-data-selected-addr (eboy-get-tile-id (eboy-get-tile-nr x y))) (* (mod y 8) 2))))
+  ;;(let ((tile-line-addr (+ (eboy-bg-&-window-tile-data-selected-addr (mod (eboy-get-tile-nr x y) 256)) (* (mod y 8) 2))))
+    (eboy-get-color (eboy-mem-read-byte tile-line-addr) (eboy-mem-read-byte (1+ tile-line-addr)) x)))
 
 (defvar eboy-display-color-table (make-hash-table :test 'eq) "The hash table with display values.")
 (puthash 3 "15 56 15" eboy-display-color-table) ; #0F380F
@@ -670,8 +658,8 @@ Little Endian."
   "Write the colors."
   (interactive)
   (with-current-buffer "*eboy-display*")
-  ;(switch-to-buffer "*eboy-display*")
-;;  (fundamental-mode)
+                                        ;(switch-to-buffer "*eboy-display*")
+  ;;  (fundamental-mode)
   ;;(inhibit-read-only t)
   (erase-buffer)
   (insert "P3\n")
@@ -679,15 +667,14 @@ Little Endian."
   (insert "255\n")
   (dotimes (y 144)
     (dotimes (x 160)
-      (insert (format "%s " (gethash (eboy-get-color-xy x y) eboy-display-color-table)))
-      )
-    (insert "\n")
-    )
+      (insert (format "%s " (gethash (eboy-get-color-xy x y) eboy-display-color-table))))
+    (insert "\n"))
   (image-mode)
   (deactivate-mark)
   (display-buffer "*eboy-display*")
   ;;(switch-to-buffer "*eboy*")
   )
+
 (defun eboy-get-XPM-string ()
   "Get the XPM image string."
   (let ((xpm "/* XPM */
@@ -835,7 +822,7 @@ static char *frame[] = {
 (defun eboy-load-rom ()
   "Load the rom file.  For now just automatically load a test rom."
   (interactive)
-  (if t
+  (if nil
       (progn
         (setq eboy-boot-rom-filename "boot/DMG_ROM.bin")
         (setq eboy-boot-rom (vconcat (eboy-read-bytes eboy-boot-rom-filename)))
@@ -849,6 +836,8 @@ static char *frame[] = {
     )
   (setq eboy-rom-filename "roms/test_rom.gb")
   ;;(setq eboy-rom-filename "cpu_instrs/cpu_instrs.gb")
+  ;;(setq eboy-rom-filename "cpu_instrs/individual/08-misc instrs.gb")
+  ;;(setq eboy-rom-filename "cpu_instrs/individual/03-op sp,hl.gb")
   (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
   (setq eboy-rom-size (length eboy-rom))
   (setq eboy-clock-cycles 0)
@@ -857,6 +846,7 @@ static char *frame[] = {
   (setq eboy-lcd-ly 0)
   ;;(switch-to-buffer "*eboy*")
   (switch-to-buffer "*eboy-display*")
+  (text-scale-set -8) ; only when using unicode display function
   ;;(erase-buffer)
   (if eboy-debug-1 (eboy-log (format "Load rom: %s\n" eboy-rom-filename)))
   (if eboy-debug-1 (eboy-log (format "Rom size: %d bytes\n" eboy-rom-size)))
@@ -896,7 +886,8 @@ static char *frame[] = {
 (defun eboy-debug-step-nr-of-times (nr)
   "docstring"
   ;(interactive "nNr of steps: ")
-  (switch-to-buffer "*eboy-debug*")
+  ;;(switch-to-buffer "*eboy-debug*")
+  (switch-to-buffer "*eboy-display*")
   (while (/= nr 0) ;(or (<= eboy-pc #x100) )
     ;(switch-to-buffer "*eboy-debug*")
     (eboy-process-opcode (eboy-mem-read-byte eboy-pc) eboy-flags)
