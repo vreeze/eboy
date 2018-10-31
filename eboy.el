@@ -35,6 +35,7 @@ Return the binary data as unibyte string."
 (defvar eboy-rom-size nil "The size of the rom in bytes.")
 (defvar eboy-pc nil "The program counter.")
 (defvar eboy-sp nil "The stack pointer.")
+(defvar eboy-flags nil "The flags register.")
 (defvar eboy-interrupt-master-enbl nil "Interupts master enabled flag.")
 (defvar eboy-interrupt-pending #x00 "Flags of pending interrupts.")
 (defvar eboy-interrupt-enabled #x00 "Flags of enabled interrupts.")
@@ -66,6 +67,7 @@ Return the binary data as unibyte string."
 (defvar eboy-debug-fps-timestamp (time-to-seconds (current-time)) "The FPS calculation.")
 (defvar eboy-debug-nr-of-frames 0 "The number of frames processed since FPS calculation.")
 (defvar eboy-debug-last-log-line "" "The last log line.")
+(defvar eboy-debug-last-write-log nil "Log when a write has occured.")
 
 (defvar eboy-rA 0 "Register A.")
 (defvar eboy-rB 0 "Register B.")
@@ -237,7 +239,14 @@ Return the binary data as unibyte string."
 ;; --------------------------- 0000 --
 ;; * NOTE: b = bit, B = byte
 
+;; TODO remove later
 (defun eboy-mem-read-byte (address)
+  "Extra read function for debug, at ADDRESS."
+  (let ((data (eboy-mem-read-byte-for-debug address)))
+    (setq eboy-debug-last-write-log (concat eboy-debug-last-write-log (format " read addr: 0x%04X 0x%02X" address data)))
+    data))
+
+(defun eboy-mem-read-byte-for-debug (address)
   "Read byte from ADDRESS."
   (cond
    ((and (>= address #xFF80) (<= address #xFFFF))
@@ -338,6 +347,8 @@ Return the binary data as unibyte string."
 (defun eboy-mem-write-byte (address data)
   "Write DATA byte to memory at ADDRESS."
   (setq data (logand data #xff))
+  (setq eboy-debug-last-write-log (concat eboy-debug-last-write-log (format " write addr: 0x%04X 0x%02X" address data)))
+
   (cond
    ((and (>= address #xFF80) (<= address #xFFFF))
     (if (= address #xFFFF)
@@ -368,7 +379,12 @@ Return the binary data as unibyte string."
      ((= address #xFF49) (eboy-msg "Write OBP1: Object Palette 1 Data.") )
      ((= address #xFF48) (eboy-msg "Write OBPO: Object Palette 0 Data.") )
      ((= address #xFF47) (eboy-msg "Write BGP: BG & Window Palette DATA.") )
-     ((= address #xFF46) (eboy-msg "Write DMA: DMA Transfer and Start Address.") )
+     ((= address #xFF46) (eboy-msg "Write DMA: DMA Transfer and Start Address.")
+      (let ((byte_nr 0)
+            (base_address (lsh data 8)))
+        (while (< byte_nr #xA0)
+          (eboy-mem-write-byte (+ #xFE00 byte_nr) (eboy-mem-read-byte (+ base_address byte_nr)))
+          (incf byte_nr))))
      ((= address #xFF45) (eboy-msg "Write LYC: LY Compare.") )
      ((= address #xFF44) (eboy-msg "Write LY: Reset the LCDC Y Coordinate.")
       (setq eboy-lcd-ly 0))
@@ -441,15 +457,22 @@ Return the binary data as unibyte string."
 (defun eboy-mem-write-short (address data)
   "Write DATA short to memory at ADDRESS.
 Little Endian."
+  (setq eboy-debug-last-write-log (concat eboy-debug-last-write-log (format " write addr: 0x%04X 0x%04X]" address data)))
   (eboy-mem-write-byte address (logand data #xFF))
   (eboy-mem-write-byte (1+ address) (logand (lsh data -8) #xFF))
   )
 
+
 (defun eboy-mem-read-short (address)
+  "Extra read function for debug, read from ADDRESS."
+  (let ((data (eboy-mem-read-short-for-debug address)))
+    (setq eboy-debug-last-write-log (concat eboy-debug-last-write-log (format " read addr: 0x%04X 0x%04X" address data)))
+    data))
+
+(defun eboy-mem-read-short-for-debug (address)
   "Read short from memory at ADDRESS.
 Little Endian."
-  (logior (lsh (eboy-mem-read-byte (1+ address)) 8) (eboy-mem-read-byte address))
-  )
+  (logior (eboy-mem-read-byte address) (lsh (eboy-mem-read-byte (1+ address)) 8)))
 
 ;;(eboy-mem-write-byte #x4100 23)
 ;;(message "message %x" (eboy-mem-read-byte #x101))
@@ -736,7 +759,7 @@ static char *frame[] = {
     (setq eboy-debug-fps-timestamp (time-to-seconds (current-time)))
     (message "FPS: %d" (/ eboy-debug-nr-of-frames 2))
     (setq eboy-debug-nr-of-frames 0)
-    (eboy-write-display-unicode)
+    ;;(eboy-write-display-unicode)
     ))
  ;; assuming data table 0 for now
 ;;(eboy-get-tile-nr 17 11)
@@ -763,6 +786,9 @@ static char *frame[] = {
       (eboy-inc-pc 1)
 
     (setq eboy-debug-last-log-line (format "0x%x, pc: 0x%x, opcode: 0x%02x, f: 0x%02x A: 0x%02x B: 0x%02x C: 0x%02x D: 0x%02x E: 0x%02x H: 0x%02x L: 0x%02x" eboy-clock-cycles eboy-pc opcode (eboy-flags-to-byte eboy-flags) eboy-rA eboy-rB eboy-rC eboy-rD eboy-rE eboy-rH eboy-rL))
+    (when (stringp eboy-debug-last-write-log)
+      (setq eboy-debug-last-log-line  (concat eboy-debug-last-log-line eboy-debug-last-write-log))
+      (setq eboy-debug-last-write-log nil))
 
     (when (> eboy-debug-nr-instructions 629290)
         (if eboy-debug-1 (insert eboy-debug-last-log-line)))
@@ -775,16 +801,14 @@ static char *frame[] = {
 
 (defun eboy-disable-interrupt (interrupt-mask)
   "Remove the interrupt flag for INTERRUPT-MASK."
-  (setq eboy-interrupt-pending (logand eboy-interrupt-pending (lognot interrupt-mask)))
-  )
+  (setq eboy-interrupt-pending (logand eboy-interrupt-pending (lognot interrupt-mask))))
 
 (defun eboy-process-interrupt (address)
   "Disable interrupts, put PC on stack and set PC to ADDRESS."
   (setq eboy-interrupt-master-enbl nil)
   (decf eboy-sp 2)
   (eboy-mem-write-short eboy-sp eboy-pc)
-  (setq eboy-pc address)
-  )
+  (setq eboy-pc address))
 
 (defun eboy-process-interrupts ()
   "Process pending interrupts."
@@ -817,7 +841,6 @@ static char *frame[] = {
                   )))
       ))
   )
-(defvar eboy-flags nil "Temp storage flags.")
 
 (defun eboy-load-rom ()
   "Load the rom file.  For now just automatically load a test rom."
@@ -843,11 +866,12 @@ static char *frame[] = {
   (setq eboy-clock-cycles 0)
   (setq eboy-debug-nr-instructions 0)
   (setq eboy-debug-pc-max 0)
+  (setq eboy-debug-last-write-log nil)
   (setq eboy-lcd-ly 0)
   ;;(switch-to-buffer "*eboy*")
   (switch-to-buffer "*eboy-display*")
   (text-scale-set -8) ; only when using unicode display function
-  ;;(erase-buffer)
+  (erase-buffer)
   (if eboy-debug-1 (eboy-log (format "Load rom: %s\n" eboy-rom-filename)))
   (if eboy-debug-1 (eboy-log (format "Rom size: %d bytes\n" eboy-rom-size)))
   (if eboy-debug-1 (eboy-log (format "Rom title: %s\n" (eboy-rom-title))))
