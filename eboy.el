@@ -78,6 +78,12 @@ Return the binary data as unibyte string."
 (defvar eboy-rH 0 "Register H.")
 (defvar eboy-rL 0 "Register L.")
 
+;; JoyPad
+(defvar eboy-joypad-direction-keys #xF "The direction keys of the joypad, |Down|Up|Left|Right| (0=pressed).")
+(defvar eboy-joypad-button-keys #xF "The button keys of the joypad, |Start|Select|B|A| (0=pressed).")
+
+
+
 (defmacro eboy-add-byte (byte value)
   "Simulate byte behavior: add VALUE to BYTE."
   `(progn (setq ,byte (+ ,byte ,value))
@@ -208,6 +214,7 @@ Return the binary data as unibyte string."
   )
 
 (defvar eboy-ram (make-vector (* 8 1024) 0) "The 8 kB interal RAM.")
+(defvar eboy-sram (make-vector (* 8 1024) 0) "The 8kB switchable RAM bank.")
 (defvar eboy-hram (make-vector 128 0) "The 128 bytes high RAM.")
 (defvar eboy-vram (make-vector (* 8 1024) 0) "The 8 kB interal Video RAM.")
 (defvar eboy-io (make-vector #x4C 0) "The 8 IO registers.")
@@ -239,14 +246,7 @@ Return the binary data as unibyte string."
 ;; --------------------------- 0000 --
 ;; * NOTE: b = bit, B = byte
 
-;; TODO remove later
 (defun eboy-mem-read-byte (address)
-  "Extra read function for debug, at ADDRESS."
-  (let ((data (eboy-mem-read-byte-for-debug address)))
-    (setq eboy-debug-last-write-log (concat eboy-debug-last-write-log (format " read addr: 0x%04X 0x%02X" address data)))
-    data))
-
-(defun eboy-mem-read-byte-for-debug (address)
   "Read byte from ADDRESS."
   (cond
    ((and (>= address #xFF80) (<= address #xFFFF))
@@ -254,13 +254,11 @@ Return the binary data as unibyte string."
     (if (= address #xFFFF)
         (progn (eboy-msg "Read IE: Interrupt Enable.")
                eboy-interrupt-enabled)
-      (aref eboy-hram (- address #xFF80))
-      )
-    )
+      (aref eboy-hram (- address #xFF80))))
+
    ((and (>= address #xFF4C) (< address #xFF80))
     ;;(message "Empty but unusable for I/O")
-    (aref eboy-ram (- address #xE000))
-    )
+    (aref eboy-ram (- address #xE000)))
    ((and (>= address #xFF00) (< address #xFF4C))
     ;;(message "I/O ports")
     (let ((data (aref eboy-io (- address #xFF00))))
@@ -281,13 +279,13 @@ Return the binary data as unibyte string."
         (setq data eboy-lcd-scrolly))
        ((= address #xFF41) (eboy-msg "Read STAT: LCDC Status.") )
        ((= address #xFF40) (eboy-msg "Read LCDC: LCD Control.")
-        (setq data (logior (lsh (if eboy-lcdc-display-enable 1 0) -7)
-                           (lsh (if eboy-lcdc-window-tile-map-select 1 0) -6)
-                           (lsh (if eboy-lcdc-window-display-enable 1 0) -5)
-                           (lsh (if eboy-lcdc-bg-&-window-tile-data-select 1 0) -4)
-                           (lsh (if eboy-lcdc-bg-tile-map-display-select 1 0) -3)
-                           (lsh (if eboy-lcdc-obj-size 1 0) -2)
-                           (lsh (if eboy-lcdc-obj-disp-on 1 0) -1)
+        (setq data (logior (lsh (if eboy-lcdc-display-enable 1 0) 7)
+                           (lsh (if eboy-lcdc-window-tile-map-select 1 0) 6)
+                           (lsh (if eboy-lcdc-window-display-enable 1 0) 5)
+                           (lsh (if eboy-lcdc-bg-&-window-tile-data-select 1 0) 4)
+                           (lsh (if eboy-lcdc-bg-tile-map-display-select 1 0) 3)
+                           (lsh (if eboy-lcdc-obj-size 1 0) 2)
+                           (lsh (if eboy-lcdc-obj-disp-on 1 0) 1)
                            (if eboy-lcdc-bg-window-on 1 0))))
        ;; in between sound registers, but not consecutive, some unknow address.
        ((= address #xFF0F)
@@ -301,33 +299,28 @@ Return the binary data as unibyte string."
        ((= address #xFF01) (eboy-msg "Read SB: Serial transfer data.") )
        ((= address #xFF00) (eboy-msg "Read P1: Joy Pad info and system type register.")
         (cond
-         ((= (logand (lognot data) #x10) #x10) (eboy-msg "Direction keys selected") (setq data #x0F))
-         ((= (logand (lognot data) #x20) #x20) (eboy-msg "Button keys selected") (setq data #x0F)))))
+         ((= (logand (lognot data) #x10) #x10) (setq data (logior #xE0 eboy-joypad-direction-keys)))
+         ((= (logand (lognot data) #x20) #x20) (setq data (logior #xD0 eboy-joypad-button-keys))))))
       data))
 
    ((and (>= address #xFEA0) (< address #xFF00))
     ;;(message "Empty but unusable for I/O")
-    (aref eboy-ram (- address #xE000))
-    )
+    (aref eboy-ram (- address #xE000)))
    ((and (>= address #xFE00) (< address #xFEA0))
     ;;(message "Sprite Attrib Memory (OAM)")
-    (aref eboy-ram (- address #xE000))
-    )
+    (aref eboy-ram (- address #xE000)))
    ((and (>= address #xE000) (< address #xFE00))
     ;;(message "Echo of 8kB Internal RAM")
-    (aref eboy-ram (- address #xE000))
-    )
+    (aref eboy-ram (- address #xE000)))
    ((and (>= address #xC000) (< address #xE000))
     ;;(message "8kB Internal RAM")
-    (aref eboy-ram (- address #xC000))
-    )
+    (aref eboy-ram (- address #xC000)))
    ((and (>= address #xA000) (< address #xC000))
     ;;(message "8kB switchable RAM bank")
-    )
+    (aref eboy-sram (- address #xA000)))
    ((and (>= address #x8000) (< address #xA000))
     ;;(message "8kB Video RAM")
-    (aref eboy-vram (- address #x8000))
-    )
+    (aref eboy-vram (- address #x8000)))
 
    ;; 32kB Cartidge
    ((and (>= address #x4000) (< address #x8000))
@@ -340,14 +333,11 @@ Return the binary data as unibyte string."
     ;;(message "internal ROM bank #0")
     (if eboy-boot-rom-disabled-p
         (aref eboy-rom address)
-      (aref eboy-boot-rom address))
-    )
-   ))
+      (aref eboy-boot-rom address)))))
 
 (defun eboy-mem-write-byte (address data)
   "Write DATA byte to memory at ADDRESS."
   (setq data (logand data #xff))
-  (setq eboy-debug-last-write-log (concat eboy-debug-last-write-log (format " write addr: 0x%04X 0x%02X" address data)))
 
   (cond
    ((and (>= address #xFF80) (<= address #xFFFF))
@@ -421,10 +411,8 @@ Return the binary data as unibyte string."
      ((= address #xFF04) (eboy-msg "Write DIV: Divider Register.") )
      ((= address #xFF02) (eboy-msg "Write SC: SIO control.") )
      ((= address #xFF01) (eboy-msg "Write SB: Serial transfer data.") )
-     ((= address #xFF00) (eboy-msg "Write P1: Joy Pad info and system type register.")
-      ))
-
-     (aset eboy-io (- address #xFF00) data))
+     ((= address #xFF00) (eboy-msg "Write P1: Joy Pad info and system type register.")))
+    (aset eboy-io (- address #xFF00) data))
    ((and (>= address #xFEA0) (< address #xFF00))
     ;; (message "Write Empty but unusable for I/O")
     (aset eboy-ram (- address #xE000) data))
@@ -439,7 +427,7 @@ Return the binary data as unibyte string."
     (aset eboy-ram (- address #xC000) data))
    ((and (>= address #xA000) (< address #xC000))
     ;; (message "Write 8kB switchable RAM bank")
-    )
+    (aset eboy-sram (- address #xC000) data))
    ((and (>= address #x8000) (< address #xA000))
     ;; (message "Write 8kB Video RAM")
     (aset eboy-vram (- address #x8000) data))
@@ -457,19 +445,10 @@ Return the binary data as unibyte string."
 (defun eboy-mem-write-short (address data)
   "Write DATA short to memory at ADDRESS.
 Little Endian."
-  (setq eboy-debug-last-write-log (concat eboy-debug-last-write-log (format " write addr: 0x%04X 0x%04X]" address data)))
   (eboy-mem-write-byte address (logand data #xFF))
-  (eboy-mem-write-byte (1+ address) (logand (lsh data -8) #xFF))
-  )
-
+  (eboy-mem-write-byte (1+ address) (logand (lsh data -8) #xFF)))
 
 (defun eboy-mem-read-short (address)
-  "Extra read function for debug, read from ADDRESS."
-  (let ((data (eboy-mem-read-short-for-debug address)))
-    (setq eboy-debug-last-write-log (concat eboy-debug-last-write-log (format " read addr: 0x%04X 0x%04X" address data)))
-    data))
-
-(defun eboy-mem-read-short-for-debug (address)
   "Read short from memory at ADDRESS.
 Little Endian."
   (logior (eboy-mem-read-byte address) (lsh (eboy-mem-read-byte (1+ address)) 8)))
@@ -616,6 +595,13 @@ Little Endian."
   "Print OPCODE is unimplemented."
   (insert (format "Unimplemented opcode 0x%02x" opcode)))
 
+
+
+;;;;;
+;;;; JOYPAD section
+;;;;;
+
+
 ;;;;;
 ;;;; DISPLAY section
 ;;;;;
@@ -741,7 +727,8 @@ static char *frame[] = {
 
 (defun eboy-lcd-cycle ()
   "Perform a single lcd cycle."
-  (if eboy-lcdc-display-enable
+  ;; TODO: enable again later for speed increase?
+  ;;(if eboy-lcdc-display-enable
       (let ((screen-cycle (mod eboy-clock-cycles 70224)))
         (setq eboy-lcd-ly (/ screen-cycle 456))
         (when (and (= eboy-lcd-ly 143) (not eboy-display-write-done))
@@ -751,7 +738,8 @@ static char *frame[] = {
         (when (and (= eboy-lcd-ly 144) eboy-display-write-done)
           (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-vblank))
           (setq eboy-display-write-done nil)
-          ))))
+          )))
+  ;;)
 (defun eboy-debug-update-fps ()
   "Update the Frames Per Second counter."
   (incf eboy-debug-nr-of-frames)
@@ -759,7 +747,7 @@ static char *frame[] = {
     (setq eboy-debug-fps-timestamp (time-to-seconds (current-time)))
     (message "FPS: %d" (/ eboy-debug-nr-of-frames 2))
     (setq eboy-debug-nr-of-frames 0)
-    ;;(eboy-write-display-unicode)
+    (eboy-write-display-unicode)
     ))
  ;; assuming data table 0 for now
 ;;(eboy-get-tile-nr 17 11)
