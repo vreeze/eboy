@@ -82,50 +82,29 @@ Return the binary data as unibyte string."
 (defvar eboy-joypad-direction-keys #xF "The direction keys of the joypad, |Down|Up|Left|Right| (0=pressed).")
 (defvar eboy-joypad-button-keys #xF "The button keys of the joypad, |Start|Select|B|A| (0=pressed).")
 
-
-
 (defmacro eboy-add-byte (byte value)
   "Simulate byte behavior: add VALUE to BYTE."
   `(progn (setq ,byte (+ ,byte ,value))
-          (setq ,byte (logand ,byte #xFF)))
-  )
+          (setq ,byte (logand ,byte #xFF))))
 
 (defmacro eboy-add-to-short (short value)
   "Simulate short behavior: add VALUE to SHORT."
   `(progn (setq ,short (+ ,short ,value))
-          (setq ,short (logand ,short #xFFFF)))
-  )
-
-;; (defmacro eboy-subtract-byte (byte value)
-;;   "Simulate byte behavior: subtract VALUE from BYTE."
-;;   `(progn (setq ,byte (- ,byte ,value))
-;;           (if (< ,byte 0)
-;;               (setq ,byte (+ ,byte 256))))
-;;   )
-
-;; (eboy-byte-to-signed #x12)
-
-;; (1+ (logand (lognot #x12) #xFF))
-
-;; (eboy-byte-to-signed #xff)
-;; (eboy-byte-to-signed #x8F)
+          (setq ,short (logand ,short #xFFFF))))
 
 (defun eboy-byte-to-signed (byte)
   "Convert BYTE to signed number."
   ;;(* (1+ (logxor byte #xFF)) -1)
   (if (not (zerop (logand #x80 byte)))
       (setq byte (- byte #x100)))
-  byte
-  )
+  byte)
 
 (defmacro eboy-dec (reg flags)
   "CPU Instruction: Decrement register REG and update FLAGS."
   `(progn (eboy-add-byte ,reg -1)
           (eboy-set-flag ,flags ,:Z (= ,reg 0))
           (eboy-set-flag ,flags ,:N t)
-          (eboy-set-flag ,flags ,:H (= (logand ,reg #xF) #xF))
-     )
-  )
+          (eboy-set-flag ,flags ,:H (= (logand ,reg #xF) #xF))))
 
 (defmacro eboy-inc-rpair (r1 r2 value)
   "Increase register pair R1 R2 with VALUE."
@@ -151,8 +130,7 @@ Return the binary data as unibyte string."
   (setq eboy-rD 0)
   (setq eboy-rE #xD8)
   (setq eboy-rH #x01)
-  (setq eboy-rL #x4d)
-  )
+  (setq eboy-rL #x4d))
 
 (defun eboy-init-memory ()
   "Initialize the RAM to some startup values."
@@ -186,8 +164,7 @@ Return the binary data as unibyte string."
   (eboy-mem-write-byte #xFF49 #xFF) ; OBP1
   (eboy-mem-write-byte #xFF4A #x00) ; WY
   (eboy-mem-write-byte #xFF4B #x00) ; WX
-  (eboy-mem-write-byte #xFFFF #x00) ; IE
-  )
+  (eboy-mem-write-byte #xFFFF #x00)) ; IE
 
 (defun eboy-debug-dump-memory (start-address end-address)
   "Dump the memory from START-ADDRESS to END-ADDRESS."
@@ -197,21 +174,16 @@ Return the binary data as unibyte string."
            (data (eboy-mem-read-byte (+ start-address i))))
       (if (= (mod address #x10) 0)
           (insert (format "\n%04x: " address)))
-      (insert (format "%02x " data))
-      )
-    )
-  (insert "\n")
-  )
+      (insert (format "%02x " data))))
+  (insert "\n"))
 
 (defun eboy-log (logstring)
   "Log string LOGSTRING."
-  (if eboy-debug-2 (insert logstring))
-  )
+  (if eboy-debug-2 (insert logstring)))
 
 (defun eboy-msg (msg)
   "Write a MSG string to the message buffer."
-  (if eboy-debug-2 (message "eboy: %s" msg))
-  )
+  (if eboy-debug-2 (message "eboy: %s" msg)))
 
 (defvar eboy-ram (make-vector (* 8 1024) 0) "The 8 kB interal RAM.")
 (defvar eboy-sram (make-vector (* 8 1024) 0) "The 8kB switchable RAM bank.")
@@ -252,10 +224,8 @@ Return the binary data as unibyte string."
    ((and (>= address #xFF80) (<= address #xFFFF))
     ;;(message "Internal RAM")
     (if (= address #xFFFF)
-        (progn (eboy-msg "Read IE: Interrupt Enable.")
-               eboy-interrupt-enabled)
+        eboy-interrupt-enabled
       (aref eboy-hram (- address #xFF80))))
-
    ((and (>= address #xFF4C) (< address #xFF80))
     ;;(message "Empty but unusable for I/O")
     (aref eboy-ram (- address #xE000)))
@@ -263,22 +233,22 @@ Return the binary data as unibyte string."
     ;;(message "I/O ports")
     (let ((data (aref eboy-io (- address #xFF00))))
       (cond
-       ((= address #xFF4B) (eboy-msg "Read WX: Window X position.") )
-       ((= address #xFF4A) (eboy-msg "Read WY: Window Y position.") )
-       ((= address #xFF49) (eboy-msg "Read OBP1: Object Palette 1 Data.") )
-       ((= address #xFF48) (eboy-msg "Read OBPO: Object Palette 0 Data.") )
-       ((= address #xFF47) (eboy-msg "Read BGP: BG & Window Palette DATA.") )
-       ;;((= address #xFF46) (eboy-msg "Read DMA: DMA Transfer and Start Address.") )
-       ((= address #xFF45) (eboy-msg "Read LYC: LY Compare.") )
-       ((= address #xFF44) (eboy-msg "Read LY: LCDC Y Coordinate.")
+       ((= address #xFF4B) ) ;; Read WX: Window X position.
+       ((= address #xFF4A) ) ;; Read WY: Window Y position.
+       ((= address #xFF49) ) ;; Read OBP1: Object Palette 1 Data.
+       ((= address #xFF48) ) ;; Read OBPO: Object Palette 0 Data.
+       ((= address #xFF47) ) ;; Read BGP: BG & Window Palette DATA.
+       ;;((= address #xFF46)) ;; Read DMA: DMA Transfer and Start Address
+       ((= address #xFF45) ) ;; Read LYC: LY Compare.
+       ((= address #xFF44)  ;; Read LY: LCDC Y Coordinate
         ;; if lcd is on then eboy-lcd-y, else 0
         (setq data (if eboy-lcdc-display-enable eboy-lcd-ly 0)))
-       ((= address #xFF43) (eboy-msg "Read SCX: Scroll X.")
+       ((= address #xFF43) ;; Read SCX: Scroll X.
         (setq data eboy-lcd-scrollx))
-       ((= address #xFF42) (eboy-msg "Read SCY: Scroll Y.")
+       ((= address #xFF42) ;; SCY: Scroll Y.
         (setq data eboy-lcd-scrolly))
-       ((= address #xFF41) (eboy-msg "Read STAT: LCDC Status.") )
-       ((= address #xFF40) (eboy-msg "Read LCDC: LCD Control.")
+       ((= address #xFF41) ) ;; Read STAT: LCDC Status.
+       ((= address #xFF40)  ;;  Read LCDC: LCD Control.
         (setq data (logior (lsh (if eboy-lcdc-display-enable 1 0) 7)
                            (lsh (if eboy-lcdc-window-tile-map-select 1 0) 6)
                            (lsh (if eboy-lcdc-window-display-enable 1 0) 5)
@@ -289,15 +259,15 @@ Return the binary data as unibyte string."
                            (if eboy-lcdc-bg-window-on 1 0))))
        ;; in between sound registers, but not consecutive, some unknow address.
        ((= address #xFF0F)
-        (eboy-msg "Read IF: Interrupt Flag.")
+        ;;Read IF: Interrupt Flag.
         (setq data eboy-interrupt-pending))
-       ((= address #xFF07) (eboy-msg "Read TAC: Timer Control.") )
-       ((= address #xFF06) (eboy-msg "Read TMA: Timer Modulo.") )
-       ((= address #xFF05) (eboy-msg "Read TIMA: Timer Counter.") )
-       ((= address #xFF04) (eboy-msg "Read DIV: Divider Register.") )
-       ((= address #xFF02) (eboy-msg "Read SC: SIO control.") )
-       ((= address #xFF01) (eboy-msg "Read SB: Serial transfer data.") )
-       ((= address #xFF00) (eboy-msg "Read P1: Joy Pad info and system type register.")
+       ((= address #xFF07) ) ;; Read TAC: Timer Control.
+       ((= address #xFF06) ) ;; Read TMA: Timer Modulo.
+       ((= address #xFF05) ) ;; Read TIMA: Timer Counter.
+       ((= address #xFF04) ) ;; Read DIV: Divider Register.
+       ((= address #xFF02) ) ;; Read SC: SIO control.
+       ((= address #xFF01) ) ;; Read SB: Serial transfer data.
+       ((= address #xFF00) ;; Read P1: Joy Pad info and system type register.
         (cond
          ((= (logand (lognot data) #x10) #x10) (setq data (logior #xE0 eboy-joypad-direction-keys)))
          ((= (logand (lognot data) #x20) #x20) (setq data (logior #xD0 eboy-joypad-button-keys))))))
@@ -340,54 +310,36 @@ Return the binary data as unibyte string."
   (setq data (logand data #xff))
 
   (cond
-   ((and (>= address #xFF80) (<= address #xFFFF))
-    (if (= address #xFFFF)
-        (progn (eboy-msg (format "Write IE: Interrupt Enable. #%02x" data))
-               (if (= 1 (logand data eboy-im-vblank)) (eboy-msg "ie V-Blank"))
-               (if (= 1 (logand data eboy-im-lcdc)) (eboy-msg "ie LCDC"))
-               (if (= 1 (logand data eboy-im-tmr-overflow)) (eboy-msg "ie Timer Overflow"))
-               (if (= 1 (logand data eboy-im-s-trans-compl)) (eboy-msg "ie Serial I/O transfer complete"))
-               (if (= 1 (logand data eboy-im-h2l-pins)) (eboy-msg "ie transition from h to l of pin P10-P13"))
-               (setq eboy-interrupt-enabled data)
-               )
-      ;; (message "Write Internal RAM")
-      (aset eboy-hram (- address #xFF80) data)
-      )
-      )
-   ((and (>= address #xFF4C) (< address #xFF80))
-    ;; (message "Write Empty but unusable for I/O")
-    (aset eboy-ram (- address #xE000) data))
+   ((= address #xFFFF) (setq eboy-interrupt-enabled data))
+   ((and (>= address #xFF80) (<= address #xFFFF)) (aset eboy-hram (- address #xFF80) data))
+   ((and (>= address #xFF4C) (< address #xFF80)) (aset eboy-ram (- address #xE000) data))
    ((and (>= address #xFF00) (< address #xFF4C))
     ;; (message "Write I/O ports")
     (cond
-     ((= address #xFF4B) (eboy-msg "Write WX: Window X position.") )
-     ((= address #xFF4B) (eboy-msg "Write WX: Window X position.") )
-     ((= address #xFF4A) (eboy-msg "Write WY: Window Y position.") )
-     ((= address #xFF50) (eboy-msg "Write: Disable boot rom.")
+     ((= address #xFF4B)  ) ;; Write WX: Window X position.
+     ((= address #xFF4B)  ) ;; Write WX: Window X position.
+     ((= address #xFF4A)  ) ;; Write WY: Window Y position.
+     ((= address #xFF50) ;; Write: Disable boot rom.
       ;; on boot it writes 0x01, lets disable it always
       (setq eboy-boot-rom-disabled-p t))
-     ((= address #xFF49) (eboy-msg "Write OBP1: Object Palette 1 Data.") )
-     ((= address #xFF48) (eboy-msg "Write OBPO: Object Palette 0 Data.") )
-     ((= address #xFF47) (eboy-msg "Write BGP: BG & Window Palette DATA.") )
-     ((= address #xFF46) (eboy-msg "Write DMA: DMA Transfer and Start Address.")
+     ((= address #xFF49)  ) ;; Write OBP1: Object Palette 1 Data.
+     ((= address #xFF48)  ) ;; Write OBPO: Object Palette 0 Data.
+     ((= address #xFF47)  ) ;; Write BGP: BG & Window Palette DATA.
+     ((= address #xFF46) ;; Write DMA: DMA Transfer and Start Address.
       (let ((byte_nr 0)
             (base_address (lsh data 8)))
         (while (< byte_nr #xA0)
           (eboy-mem-write-byte (+ #xFE00 byte_nr) (eboy-mem-read-byte (+ base_address byte_nr)))
           (incf byte_nr))))
-     ((= address #xFF45) (eboy-msg "Write LYC: LY Compare.") )
-     ((= address #xFF44) (eboy-msg "Write LY: Reset the LCDC Y Coordinate.")
+     ((= address #xFF45)  ) ;; Write LYC: LY Compare.
+     ((= address #xFF44) ;; Write LY: Reset the LCDC Y Coordinate.
       (setq eboy-lcd-ly 0))
-     ((= address #xFF43) (eboy-msg "Write SCX: Scroll X.")
-      (setq eboy-lcd-scrollx data)
-      ;;(message "scroll x %d" data)
-      )
-     ((= address #xFF42) (eboy-msg "Write SCY: Scroll Y.")
-      (setq eboy-lcd-scrolly data)
-      ;;(message "scroll y %d" data)
-      )
-     ((= address #xFF41) (eboy-msg "Write STAT: LCDC Status.") )
-     ((= address #xFF40) (eboy-msg "Write LCDC: LCD Control.")
+     ((= address #xFF43) ;; Write SCX: Scroll X.
+      (setq eboy-lcd-scrollx data))
+     ((= address #xFF42) ;; Write SCY: Scroll Y.
+      (setq eboy-lcd-scrolly data))
+     ((= address #xFF41)  ) ;; Write STAT: LCDC Status.
+     ((= address #xFF40) ;; Write LCDC: LCD Control.
       (setq eboy-lcdc-display-enable (= (logand data #x80) #x80))
       (setq eboy-lcdc-window-tile-map-select (= (logand data #x40) #x40) )
       (setq eboy-lcdc-window-display-enable (= (logand data #x20) #x20) )
@@ -397,21 +349,14 @@ Return the binary data as unibyte string."
       (setq eboy-lcdc-obj-disp-on (= (logand data #x02) #x02) )
       (setq eboy-lcdc-bg-window-on (= (logand data #x01) #x01) ))
      ;; in between sound registers, but not consecutive, some unknow address.
-     ((= address #xFF0F) (progn (eboy-msg (format "Write IF: Interrupt Flag. #%02x" data))
-                                (if (= 1 (logand data eboy-im-vblank)) (eboy-msg "if V-Blank"))
-                                (if (= 1 (logand data eboy-im-lcdc)) (eboy-msg "if LCDC"))
-                                (if (= 1 (logand data eboy-im-tmr-overflow)) (eboy-msg "if Timer Overflow"))
-                                (if (= 1 (logand data eboy-im-s-trans-compl)) (eboy-msg "if Serial I/O transfer complete"))
-                                (if (= 1 (logand data eboy-im-h2l-pins)) (eboy-msg "if transition from h to l of pin P10-P13"))
-                                (setq eboy-interrupt-pending data)
-                                ) )
-     ((= address #xFF07) (eboy-msg "Write TAC: Timer Control.") )
-     ((= address #xFF06) (eboy-msg "Write TMA: Timer Modulo.") )
-     ((= address #xFF05) (eboy-msg "Write TIMA: Timer Counter.") )
-     ((= address #xFF04) (eboy-msg "Write DIV: Divider Register.") )
-     ((= address #xFF02) (eboy-msg "Write SC: SIO control.") )
-     ((= address #xFF01) (eboy-msg "Write SB: Serial transfer data.") )
-     ((= address #xFF00) (eboy-msg "Write P1: Joy Pad info and system type register.")))
+     ((= address #xFF0F) (setq eboy-interrupt-pending data))
+     ((= address #xFF07)  ) ;; Write TAC: Timer Control.
+     ((= address #xFF06)  ) ;; Write TMA: Timer Modulo.
+     ((= address #xFF05)  ) ;; Write TIMA: Timer Counter.
+     ((= address #xFF04)  ) ;; Write DIV: Divider Register.
+     ((= address #xFF02)  ) ;; Write SC: SIO control.
+     ((= address #xFF01)  ) ;; Write SB: Serial transfer data.
+     ((= address #xFF00) )) ;; Write P1: Joy Pad info and system type register.
     (aset eboy-io (- address #xFF00) data))
    ((and (>= address #xFEA0) (< address #xFF00))
     ;; (message "Write Empty but unusable for I/O")
@@ -439,8 +384,7 @@ Return the binary data as unibyte string."
    ((and (>= address #x0000) (< address #x4000))
     ;; Tetris writes to 0x2000... why? memory bank select.
     ;;(assert nil t "Non writable: 16kB ROM bank #0")
-    )
-   ))
+    )))
 
 (defun eboy-mem-write-short (address data)
   "Write DATA short to memory at ADDRESS.
@@ -458,8 +402,7 @@ Little Endian."
 
 (defun eboy-debug-print-flags (flags)
   "Print the FLAGS."
-  (insert (format "Flags; Z:%s N:%s H:%s C:%s\n" (eboy-get-flag flags :Z) (eboy-get-flag  flags :N) (eboy-get-flag flags :H) (eboy-get-flag flags :C)))
-  )
+  (insert (format "Flags; Z:%s N:%s H:%s C:%s\n" (eboy-get-flag flags :Z) (eboy-get-flag  flags :N) (eboy-get-flag flags :H) (eboy-get-flag flags :C))))
 
 (defun eboy-print-registers ()
   "Insert the register values."
@@ -475,17 +418,7 @@ Little Endian."
 (defun eboy-debug-print-stack ()
   "Print the stack."
   (interactive)
-  (eboy-debug-dump-memory eboy-sp #xFFFE)
-  )
-
-
-;; (defun eboy-set-flags (flags new-flags)
-;;   "Set FLAGS to NEW-FLAGS."
-;;   (eboy-set-flag flags (caar new-flags) (cadar new-flags))
-;;   ;;(insert (format "%s %s" (caar new-flags) (cadar new-flags)) )
-;;   (unless (null (cdr new-flags))
-;;     (eboy-set-flags flags (cdr new-flags)))
-;;   )
+  (eboy-debug-dump-memory eboy-sp #xFFFE))
 
 (defun eboy-set-flag (flags flag state)
   "Set FLAG in FLAGS to STATE."
@@ -493,17 +426,7 @@ Little Endian."
     (:C (aset flags 0 state))
     (:H (aset flags 1 state))
     (:N (aset flags 2 state))
-    (:Z (aset flags 3 state))
-    )
-  )
-
-;;(let ((flags  (make-bool-vector 4 nil)))
-;;  (eboy-debug-print-flags flags)
-;;  ;;(eboy-set-flag flags : nil)
-;;  (eboy-debug-print-flags flags)
-;;  (insert (format "%x" (eboy-flags-to-byte flags)))
-;;  (eboy-debug-print-flags (eboy-byte-to-flags (eboy-flags-to-byte flags))))
-
+    (:Z (aset flags 3 state))))
 
 (defun eboy-get-flag (flags flag)
   "Get FLAG from FLAGS."
@@ -511,9 +434,7 @@ Little Endian."
     (:C (aref flags 0))
     (:H (aref flags 1))
     (:N (aref flags 2))
-    (:Z (aref flags 3))
-    )
-  )
+    (:Z (aref flags 3))))
 
 (defun eboy-flags-to-byte (flags)
   "Convert bitvector FLAGS to byte."
@@ -526,9 +447,7 @@ Little Endian."
         (setq byte-flags (logior #x40 byte-flags)))
     (if (eboy-get-flag flags :Z)
         (setq byte-flags (logior #x80 byte-flags)))
-    byte-flags
-    )
-  )
+    byte-flags))
 
 (defun eboy-byte-to-flags(byte-flags)
   "Convert BYTE-FLAGS back to bitvector flag."
@@ -541,9 +460,7 @@ Little Endian."
         (eboy-set-flag flags :N t))
     (if (> (logand #x80 byte-flags) 0)
         (eboy-set-flag flags :Z t))
-    flags
-    )
-  )
+    flags))
 
 (defun eboy-rom-title ()
   "Retrieve the title of the game from the loaded rom."
@@ -551,25 +468,21 @@ Little Endian."
     (dotimes (i 16)
       (let ((c (aref eboy-rom (+ i #x134))))
         (unless (equal c 0)
-            (setq title (concat title (format "%c" c))))
-        ))
+            (setq title (concat title (format "%c" c))))))
     title))
 
 
 (defun eboy-get-short ()
   "Skip opcode and get next two bytes."
-  (eboy-mem-read-short (+ eboy-pc 1))
-  )
+  (eboy-mem-read-short (+ eboy-pc 1)))
 
 (defun eboy-get-byte ()
   "Skip opcode and get next byte."
-  (eboy-mem-read-byte (+ eboy-pc 1))
-  )
+  (eboy-mem-read-byte (+ eboy-pc 1)))
 
 (defun eboy-inc-pc (nr-bytes)
   "Increment program counter with NR-BYTES."
-  (setq eboy-pc (+ eboy-pc nr-bytes))
-  )
+  (setq eboy-pc (+ eboy-pc nr-bytes)))
 
 (defun eboy-set-rBC (value)
   "Put VALUE into registers BC."
@@ -611,8 +524,7 @@ Little Endian."
   (let* ((bit (- 7(mod x 8)))
          (mask (lsh 1 bit)))
     (logior (lsh (logand byte2 mask) (+ (* -1 bit) 1))
-            (lsh (logand byte1 mask) (* -1 bit))))
-  )
+            (lsh (logand byte1 mask) (* -1 bit)))))
 
  ;; (eboy-get-color #x64 #x28 0) ; ⇒ 0
  ;; (eboy-get-color #x64 #x28 1) ; ⇒ 1
@@ -667,9 +579,9 @@ Little Endian."
   "Write the colors."
   (interactive)
   (with-current-buffer "*eboy-display*")
-                                        ;(switch-to-buffer "*eboy-display*")
-  ;;  (fundamental-mode)
-  ;;(inhibit-read-only t)
+  ;; (switch-to-buffer "*eboy-display*")
+  ;; (fundamental-mode)
+  ;; (inhibit-read-only t)
   (erase-buffer)
   (insert "P3\n")
   (insert "160 144\n")
@@ -698,11 +610,8 @@ static char *frame[] = {
       (setq xpm (concat xpm  "\""))
       (dotimes (x 160)
         (setq xpm (concat xpm (format "%s" (eboy-get-color-xy x y)))))
-      (setq xpm (concat xpm  "\",\n"))
-      )
-    (setq xpm (concat xpm "};"))
-    )
-  )
+      (setq xpm (concat xpm  "\",\n")))
+    (setq xpm (concat xpm "};"))))
 
 (defun eboy-write-display2 ()
   "Write the image to the buffer, in XPM format."
@@ -737,9 +646,9 @@ static char *frame[] = {
           (setq eboy-display-write-done t))
         (when (and (= eboy-lcd-ly 144) eboy-display-write-done)
           (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-vblank))
-          (setq eboy-display-write-done nil)
-          )))
+          (setq eboy-display-write-done nil))))
   ;;)
+
 (defun eboy-debug-update-fps ()
   "Update the Frames Per Second counter."
   (incf eboy-debug-nr-of-frames)
@@ -747,45 +656,14 @@ static char *frame[] = {
     (setq eboy-debug-fps-timestamp (time-to-seconds (current-time)))
     (message "FPS: %d" (/ eboy-debug-nr-of-frames 2))
     (setq eboy-debug-nr-of-frames 0)
-    (eboy-write-display-unicode)
-    ))
- ;; assuming data table 0 for now
-;;(eboy-get-tile-nr 17 11)
+    (eboy-write-display-unicode)))
 
-;; (mod 754 8)
-;;
-;; ((lambda (x) (lsh 1 (- 7 (mod x 8))) ) 8)
-;;
-;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 1) ; ⇒ 2
-;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 2) ; ⇒ 4
-;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 3) ; ⇒ 6
-;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 4) ; ⇒ 0
-;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 5) ; ⇒ 2
-;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 6) ; ⇒ 4
-;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 7) ; ⇒ 6
-;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 8) ; ⇒ 0
-;; (getColor (eboy-mem-read-byte #x8010) (eboy-mem-read-byte #x8011) 0) ; ⇒ 0
-
-
-
-(defun eboy-process-opcode (opcode flags)
+(defun eboy-process-opcode (opcode)
   "Process OPCODE, cpu FLAGS state."
   (if eboy-cpu-halted
       (eboy-inc-pc 1)
-
-    (setq eboy-debug-last-log-line (format "0x%x, pc: 0x%x, opcode: 0x%02x, f: 0x%02x A: 0x%02x B: 0x%02x C: 0x%02x D: 0x%02x E: 0x%02x H: 0x%02x L: 0x%02x" eboy-clock-cycles eboy-pc opcode (eboy-flags-to-byte eboy-flags) eboy-rA eboy-rB eboy-rC eboy-rD eboy-rE eboy-rH eboy-rL))
-    (when (stringp eboy-debug-last-write-log)
-      (setq eboy-debug-last-log-line  (concat eboy-debug-last-log-line eboy-debug-last-write-log))
-      (setq eboy-debug-last-write-log nil))
-
-    (when (> eboy-debug-nr-instructions 629290)
-        (if eboy-debug-1 (insert eboy-debug-last-log-line)))
-    ;;(if eboy-debug-1 (insert (format "\npc: 0x%x, opcode: 0x%02x" eboy-pc opcode)))
-    ;;(if eboy-debug-1 (insert (format "\n0x%02x" eboy-pc)))
-    ;;(if eboy-debug-1 (insert (format "\n0x%x, pc: 0x%x, opcode: 0x%02x, f: 0x%02x" eboy-clock-cycles eboy-pc opcode (eboy-flags-to-byte eboy-flags))))
     (funcall (nth opcode eboy-cpu))
-    (eboy-inc-pc 1))
-  )
+    (eboy-inc-pc 1)))
 
 (defun eboy-disable-interrupt (interrupt-mask)
   "Remove the interrupt flag for INTERRUPT-MASK."
@@ -803,32 +681,29 @@ static char *frame[] = {
   (if eboy-delay-enabling-interrupt-p
       (setq eboy-delay-enabling-interrupt-p nil)
     (let ((enbl-intr (logand eboy-interrupt-enabled  eboy-interrupt-pending)))
-      (if (and eboy-interrupt-master-enbl (> enbl-intr #x00))
-          (progn (eboy-msg "handle enbl interrupt")
-                 (cond
-                  ((= 1 (logand enbl-intr eboy-im-vblank))
-                   (eboy-msg " V-Blank")
-                   (eboy-disable-interrupt eboy-im-vblank)
-                   (eboy-process-interrupt #x40))
-                  ((= 1 (logand enbl-intr eboy-im-lcdc))
-                   (eboy-msg " LCDC")
-                   (eboy-disable-interrupt eboy-im-lcdc)
-                   (eboy-process-interrupt #x48))
-                  ((= 1 (logand enbl-intr eboy-im-tmr-overflow))
-                   (eboy-msg " Timer Overflow")
-                   (eboy-disable-interrupt eboy-im-tmr-overflow)
-                   (eboy-process-interrupt #x50))
-                  ((= 1 (logand enbl-intr eboy-im-s-trans-compl))
-                   (eboy-msg " Serial I/O transfer complete")
-                   (eboy-disable-interrupt eboy-im-s-trans-compl)
-                   (eboy-process-interrupt #x58))
-                  ((= 1 (logand enbl-intr eboy-im-h2l-pins))
-                   (eboy-msg " transition from h to l of pin P10-P13")
-                   (eboy-disable-interrupt eboy-im-h2l-pins)
-                   (eboy-process-interrupt #x60))
-                  )))
-      ))
-  )
+      (when (and eboy-interrupt-master-enbl (> enbl-intr #x00))
+          ;; handle enbl interrupt
+          (cond
+           ((= 1 (logand enbl-intr eboy-im-vblank))
+            ;; V-Blank
+            (eboy-disable-interrupt eboy-im-vblank)
+            (eboy-process-interrupt #x40))
+           ((= 1 (logand enbl-intr eboy-im-lcdc))
+            ;; LCDC
+            (eboy-disable-interrupt eboy-im-lcdc)
+            (eboy-process-interrupt #x48))
+           ((= 1 (logand enbl-intr eboy-im-tmr-overflow))
+            ;; Timer Overflow
+            (eboy-disable-interrupt eboy-im-tmr-overflow)
+            (eboy-process-interrupt #x50))
+           ((= 1 (logand enbl-intr eboy-im-s-trans-compl))
+            ;; Serial I/O transfer complete
+            (eboy-disable-interrupt eboy-im-s-trans-compl)
+            (eboy-process-interrupt #x58))
+           ((= 1 (logand enbl-intr eboy-im-h2l-pins))
+            ;; transition from h to l of pin P10-P13
+            (eboy-disable-interrupt eboy-im-h2l-pins)
+            (eboy-process-interrupt #x60)))))))
 
 (defun eboy-load-rom ()
   "Load the rom file.  For now just automatically load a test rom."
@@ -843,8 +718,8 @@ static char *frame[] = {
     (setq eboy-sp eboy-sp-initial-value)
     (eboy-init-registers)
     (eboy-init-memory)
-    (setq eboy-boot-rom-disabled-p t)
-    )
+    (setq eboy-boot-rom-disabled-p t))
+
   (setq eboy-rom-filename "roms/test_rom.gb")
   ;;(setq eboy-rom-filename "cpu_instrs/cpu_instrs.gb")
   ;;(setq eboy-rom-filename "cpu_instrs/individual/08-misc instrs.gb")
@@ -856,6 +731,8 @@ static char *frame[] = {
   (setq eboy-debug-pc-max 0)
   (setq eboy-debug-last-write-log nil)
   (setq eboy-lcd-ly 0)
+  (setq eboy-lcd-scrollx 0)
+  (setq eboy-lcd-scrolly 0)
   ;;(switch-to-buffer "*eboy*")
   (switch-to-buffer "*eboy-display*")
   (text-scale-set -8) ; only when using unicode display function
@@ -873,60 +750,46 @@ static char *frame[] = {
     (eboy-set-flag flags :H t)
     (eboy-set-flag flags :C t)
 
-    ;(while (< eboy-debug-nr-instructions 50) ;(or (<= eboy-pc #x100) )
-    ;  (eboy-process-interrupts)
-    ;  ;;(if eboy-debug-1 (insert (format "%2d: " eboy-debug-nr-instructions)))
-    ;  (eboy-process-opcode (eboy-mem-read-byte eboy-pc) flags)
-    ;  (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1)))
-
     ;; save flags
-    (setq eboy-flags flags)
-    )
-  (message "we finished? eboy-pc: %x" eboy-pc)
-  )
+    (setq eboy-flags flags))
+  (message "we finished? eboy-pc: %x" eboy-pc))
+
+(defun eboy-run ()
+  "Step NR of times."
+  (interactive)
+  (switch-to-buffer "*eboy-display*")
+  (while t
+    (eboy-process-opcode (eboy-mem-read-byte eboy-pc))
+    (eboy-process-interrupts)
+    (eboy-lcd-cycle)))
 
 (defun eboy-debug-step ()
-  "docstring"
+  "Do a single step."
   (interactive)
-  ;;(switch-to-buffer "*eboy-debug*")
   (eboy-process-opcode (eboy-mem-read-byte eboy-pc) eboy-flags)
   (eboy-process-interrupts)
-  (eboy-lcd-cycle)
-  (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
-  )
+  (eboy-lcd-cycle))
 
 (defun eboy-debug-step-nr-of-times (nr)
-  "docstring"
+  "Step NR of times."
   ;(interactive "nNr of steps: ")
-  ;;(switch-to-buffer "*eboy-debug*")
   (switch-to-buffer "*eboy-display*")
-  (while (/= nr 0) ;(or (<= eboy-pc #x100) )
-    ;(switch-to-buffer "*eboy-debug*")
-    (eboy-process-opcode (eboy-mem-read-byte eboy-pc) eboy-flags)
-    ;;(funcall (nth (eboy-mem-read-byte eboy-pc) eboy-cpu))
-    ;;(eboy-inc-pc 1)
+  (while (/= nr 0)
+    (eboy-process-opcode (eboy-mem-read-byte eboy-pc))
     (eboy-process-interrupts)
     (eboy-lcd-cycle)
-    (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
-    (decf nr)
-    )
-  (message "stopped! left: %d" nr)
-  )
+    (decf nr))
+  (message "stopped! left: %d" nr))
 
 (defun eboy-debug-break-at-pc-addr (pc-addr)
-  "docstring"
+  "Break at PC-ADDR."
   (interactive "npc address: ")
-  ;;  (setq eboy-debug-1 t)
   (switch-to-buffer "*eboy-debug*")
-  (while (/= pc-addr eboy-pc ) ;(or (<= eboy-pc #x100) )
-    ;(switch-to-buffer "*eboy-debug*")
+  (while (/= pc-addr eboy-pc )
     (eboy-process-opcode (eboy-mem-read-byte eboy-pc) eboy-flags)
     (eboy-process-interrupts)
-    (eboy-lcd-cycle)
-    (setq eboy-debug-nr-instructions (+ eboy-debug-nr-instructions 1))
-    )
-  (message "break at opcode %02x\n" pc-addr)
-  )
+    (eboy-lcd-cycle))
+  (message "break at opcode %02x\n" pc-addr))
 
 (defun eboy-debug-toggle-verbosity ()
   "Toggle debug verbosity level."
@@ -940,8 +803,7 @@ static char *frame[] = {
         ((and eboy-debug-1 eboy-debug-2)
          (setq eboy-debug-1 nil)
          (setq eboy-debug-2 nil)
-         (message "Verbosity level 0"))
-        ))
+         (message "Verbosity level 0"))))
 
 
 (setq eboy-debug-1 nil)
