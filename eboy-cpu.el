@@ -1433,7 +1433,7 @@
             (eboy-set-flag eboy-flags :C c))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x1E RR (HL) "
-          (let ((hl (eboy-mem-read-byte (eboy-get-rHL)))
+          (let* ((hl (eboy-mem-read-byte (eboy-get-rHL)))
                 (c (= (logand hl #x01) #x01)))
             (eboy-mem-write-byte (eboy-get-rHL) (logior (lsh hl -1) (lsh (if (eboy-get-flag eboy-flags :C) 1 0) 7)))
             (eboy-set-flag eboy-flags :Z (zerop (eboy-mem-read-byte (eboy-get-rHL))))
