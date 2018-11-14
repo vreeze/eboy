@@ -10,8 +10,7 @@
 (require 'eboy-cpu)
 
 (defun eboy-read-bytes (path)
-  "Read binary data from PATH.
-Return the binary data as unibyte string."
+  "Read binary data from PATH.  Return the binary data as unibyte string."
   (with-temp-buffer
     (set-buffer-multibyte nil)
     (setq buffer-file-coding-system 'binary)
@@ -163,16 +162,6 @@ Return the binary data as unibyte string."
   (eboy-mem-write-byte #xFF4B #x00) ; WX
   (eboy-mem-write-byte #xFFFF #x00)) ; IE
 
-(defun eboy-debug-dump-memory (start-address end-address)
-  "Dump the memory from START-ADDRESS to END-ADDRESS."
-  (insert (format "\nMemory: 0x%04x - 0x%04x\n" start-address end-address))
-  (dotimes (i (1+ (- end-address start-address)))
-    (let* ((address (+ start-address i))
-           (data (eboy-mem-read-byte (+ start-address i))))
-      (if (= (mod address #x10) 0)
-          (insert (format "\n%04x: " address)))
-      (insert (format "%02x " data))))
-  (insert "\n"))
 
 (defun eboy-log (logstring)
   "Log string LOGSTRING."
@@ -219,9 +208,11 @@ Return the binary data as unibyte string."
   "Read byte from ADDRESS."
   ;; most frequent accessed memory on top.
   (cond
-     ((and (>= address #x0000) (< address #x4000))
-      (aref eboy-rom address));; 16kB ROM bank #0. The lower 256 bytes contain either the boot-rom or the first 256 bytes of the rom.
-     ((and (>= address #xFF80) (<= address #xFFFF))
+   ((and (>= address #x0000) (< address #x8000))
+    ;; 32kB Cartidge
+    (aref eboy-rom address));; 16kB ROM bank #0 & 16kB switchable ROM bank. The lower 256 bytes contain either the boot-rom or the first 256 bytes of the rom.
+
+   ((and (>= address #xFF80) (<= address #xFFFF))
       ;;(message "Internal RAM")
       (if (= address #xFFFF)
           eboy-interrupt-enabled
@@ -291,11 +282,6 @@ Return the binary data as unibyte string."
      ((and (>= address #x8000) (< address #xA000))
       ;;(message "8kB Video RAM")
       (aref eboy-vram (- address #x8000)))
-
-     ;; 32kB Cartidge
-     ((and (>= address #x4000) (< address #x8000))
-      ;;(message "16kB switchable ROM bank")
-      (aref eboy-rom address))
      ))
 
 (defun eboy-mem-write-byte (address data)
@@ -314,7 +300,7 @@ Return the binary data as unibyte string."
      ((= address #xFF4A)  ) ;; Write WY: Window Y position.
      ((= address #xFF50) ;; Write: Disable boot rom.
       ;; on boot it writes 0x01, lets disable it always
-      (setq eboy-rom (concat eboy-low-rom (seq-drop eboy-rom (len eboy-low-rom)))))
+      (setq eboy-rom (concat eboy-low-rom (seq-drop eboy-rom (length eboy-low-rom)))))
      ((= address #xFF49)  ) ;; Write OBP1: Object Palette 1 Data.
      ((= address #xFF48)  ) ;; Write OBPO: Object Palette 0 Data.
      ((= address #xFF47)  ) ;; Write BGP: BG & Window Palette DATA.
@@ -390,26 +376,7 @@ Little Endian."
 Little Endian."
   (logior (eboy-mem-read-byte address) (lsh (eboy-mem-read-byte (1+ address)) 8)))
 
-(defun eboy-debug-print-flags (flags)
-  "Print the FLAGS."
-  (insert (format "Flags; Z:%s N:%s H:%s C:%s\n" (eboy-get-flag flags :Z) (eboy-get-flag  flags :N) (eboy-get-flag flags :H) (eboy-get-flag flags :C))))
-
-(defun eboy-print-registers ()
-  "Insert the register values."
-  (interactive)
-  (insert (format "A:0x%02x B:0x%02x C:0x%02x D:0x%02x E:0x%02x H:0x%02x L:0x%02x" eboy-rA  eboy-rB  eboy-rC  eboy-rD  eboy-rE  eboy-rH  eboy-rL)))
-
-(defun eboy-debug-print-cpu-state (flags)
-  "Print the registers and FLAGS."
-  (insert "\t\t\t\t")
-  (eboy-print-registers)
-  (insert (format " Z:%3s N:%3s H:%3s C:%3s\n"  (eboy-get-flag flags :Z) (eboy-get-flag  flags :N) (eboy-get-flag flags :H) (eboy-get-flag flags :C))))
-
-(defun eboy-debug-print-stack ()
-  "Print the stack."
-  (interactive)
-  (eboy-debug-dump-memory eboy-sp #xFFFE))
-
+;; This can be done in a faster way, ecase is slow.
 (defun eboy-set-flag (flags flag state)
   "Set FLAG in FLAGS to STATE."
   (ecase flag
@@ -542,13 +509,13 @@ Little Endian."
 (puthash 1 "139 172 15" eboy-display-color-table) ; #8BAC0F
 (puthash 0 "155 188 15" eboy-display-color-table) ; #9BBC0F
 
-(defvar eboy-display-unicode-table (make-hash-table :test 'eq) "The hash table with unicode display values.")
-(puthash 0 #x2588 eboy-display-unicode-table) ; █
-(puthash 1 #x2593 eboy-display-unicode-table) ; ▓
-(puthash 2 #x2592 eboy-display-unicode-table) ; ▒
-(puthash 3 #x0020 eboy-display-unicode-table) ;
+;(defvar eboy-display-unicode-table (make-hash-table :test 'eq) "The hash table with unicode display values.")
+;(puthash 0 #x2588 eboy-display-unicode-table) ; █
+;(puthash 1 #x2593 eboy-display-unicode-table) ; ▓
+;(puthash 2 #x2592 eboy-display-unicode-table) ; ▒
+;(puthash 3 #x0020 eboy-display-unicode-table) ;
 
-(defvar eboy-display-unicode-list (list #x2588 #x2593 #x2592 #x0020) "docstring")
+(defvar eboy-display-unicode-list (list #x2588 #x2593 #x2592 #x0020) "List with unicode charachters for the different shades of gray.")
 
 
 (defun eboy-write-display ()
@@ -607,7 +574,9 @@ static char *frame[] = {
       (insert (nth (eboy-get-color-xy (mod (+ x eboy-lcd-scrollx) 256) (mod (+ y eboy-lcd-scrolly) 256)) eboy-display-unicode-list)))
     (insert "\n"))
 ;;  (goto-char (point-min))
-  (redisplay))
+  (redisplay)
+;;  (sit-for 0.1)
+  )
 
 (defun eboy-lcd-cycle ()
   "Perform a single lcd cycle."
@@ -624,6 +593,30 @@ static char *frame[] = {
           (setq eboy-display-write-done nil))))
   ;;)
 
+(defun eboy-read-keys (key)
+  "See if the user pressed any KEY."
+  ;; | Start       | Enter    |         13 | 0111 (#x7)          |
+  ;; | Select      | Space    |         32 | 1011 (#xB)          |
+  ;; | B           | D        |        100 | 1101 (#xD)          |
+  ;; | A           | S        |        115 | 1110 (#xE)          |
+  ;; |-------------+----------+------------+---------------------|
+  ;; | down        | k        |        107 | 0111 (#x7)          |
+  ;; | up          | i        |        105 | 1011 (#xB)          |
+  ;; | left        | j        |        106 | 1101 (#xD)          |
+  ;; | right       | l        |        108 | 1110 (#xE)          |
+  (setq eboy-joypad-button-keys #xF)
+  (setq eboy-joypad-direction-keys #xF)
+  (unless (null key)
+    (cond
+     ((= key 13) (setq eboy-joypad-button-keys #x7))
+     ((= key 32) (setq eboy-joypad-button-keys #xB))
+     ((= key 100) (setq eboy-joypad-button-keys #xD))
+     ((= key 115) (setq eboy-joypad-button-keys #xE))
+     ((= key 107) (setq eboy-joypad-direction-keys #x7))
+     ((= key 105) (setq eboy-joypad-direction-keys #xB))
+     ((= key 106) (setq eboy-joypad-direction-keys #xD))
+     ((= key 108) (setq eboy-joypad-direction-keys #xE)))))
+
 (defun eboy-debug-update-fps ()
   "Update the Frames Per Second counter."
   (incf eboy-debug-nr-of-frames)
@@ -631,7 +624,8 @@ static char *frame[] = {
     (setq eboy-debug-fps-timestamp (time-to-seconds (current-time)))
     (message "FPS: %d" (/ eboy-debug-nr-of-frames 2))
     (setq eboy-debug-nr-of-frames 0)
-    (eboy-write-display-unicode)))
+    (eboy-write-display-unicode)
+    (eboy-read-keys (read-char nil nil 0.1))))
 
 (defun eboy-process-opcode (opcode)
   "Process OPCODE."
@@ -688,21 +682,21 @@ static char *frame[] = {
   ;;(setq eboy-rom-filename "cpu_instrs/cpu_instrs.gb")
   ;;(setq eboy-rom-filename "cpu_instrs/individual/08-misc instrs.gb")
   ;;(setq eboy-rom-filename "cpu_instrs/individual/03-op sp,hl.gb")
+  (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
+  (setq eboy-rom-size (length eboy-rom))
   (if nil
       (progn
         (setq eboy-boot-rom-filename "boot/DMG_ROM.bin")
         (setq eboy-boot-rom (vconcat (eboy-read-bytes eboy-boot-rom-filename)))
         ;; replace the lower rom with boot rom, to reduce the number condition statements in mem.
-        (setq eboy-low-rom (seq-take eboy-rom (len eboy-boot-rom)))
-        (setq eboy-rom (concat eboy-boot-rom (seq-drop eboy-rom (len eboy-boot-rom))))
+        (setq eboy-low-rom (seq-take eboy-rom (length eboy-boot-rom)))
+        (setq eboy-rom (concat eboy-boot-rom (seq-drop eboy-rom (length eboy-boot-rom))))
         (setq eboy-pc 0))
     (setq eboy-pc eboy-pc-start-address)
     (setq eboy-sp eboy-sp-initial-value)
     (eboy-init-registers)
     (eboy-init-memory))
 
-  (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
-  (setq eboy-rom-size (length eboy-rom))
   (setq eboy-clock-cycles 0)
   (setq eboy-lcd-ly 0)
   (setq eboy-lcd-scrollx 0)
@@ -735,53 +729,22 @@ static char *frame[] = {
     (eboy-process-interrupts)
     (eboy-lcd-cycle)))
 
-(defun eboy-debug-step ()
-  "Do a single step."
-  (interactive)
-  (eboy-process-opcode (eboy-mem-read-byte eboy-pc) eboy-flags)
-  (eboy-process-interrupts)
-  (eboy-lcd-cycle))
-
-(defun eboy-debug-step-nr-of-times (nr)
-  "Step NR of times."
-  ;(interactive "nNr of steps: ")
-  (switch-to-buffer "*eboy-display*")
-  (while (/= nr 0)
-    (eboy-process-opcode (eboy-mem-read-byte eboy-pc))
-    (eboy-process-interrupts)
-    (eboy-lcd-cycle)
-    (decf nr))
-  (message "stopped! left: %d" nr))
-
-(defun eboy-debug-break-at-pc-addr (pc-addr)
-  "Break at PC-ADDR."
-  (interactive "npc address: ")
-  (switch-to-buffer "*eboy-debug*")
-  (while (/= pc-addr eboy-pc )
-    (eboy-process-opcode (eboy-mem-read-byte eboy-pc) eboy-flags)
-    (eboy-process-interrupts)
-    (eboy-lcd-cycle))
-  (message "break at opcode %02x\n" pc-addr))
-
-(defun eboy-debug-toggle-verbosity ()
-  "Toggle debug verbosity level."
-  (interactive)
-  (cond ((not eboy-debug-1)
-         (setq eboy-debug-1 t)
-         (message "Verbosity level 1"))
-        ((and eboy-debug-1 (not eboy-debug-2))
-         (setq eboy-debug-2 t)
-         (message "Verbosity level 2"))
-        ((and eboy-debug-1 eboy-debug-2)
-         (setq eboy-debug-1 nil)
-         (setq eboy-debug-2 nil)
-         (message "Verbosity level 0"))))
-
 
 (setq eboy-debug-1 nil)
 (setq eboy-debug-2 nil)
 (eboy-load-rom)
 
+(defun eboy-key-reset ()
+  ""
+  (interactive)
+  (message "key reset")
+  (setq eboy-joypad-button-keys (logior eboy-joypad-button-keys #xF)))
+
+(defun eboy-key-start ()
+  ""
+  (interactive)
+  (message "key start")
+  (setq eboy-joypad-button-keys (logand eboy-joypad-button-keys #x7)))
 
 (defvar eboy-mode-map nil "Keymap for `eboy-mode'.")
 
@@ -790,6 +753,10 @@ static char *frame[] = {
   (define-key eboy-mode-map (kbd "<f5>") 'eboy-debug-step)
   (define-key eboy-mode-map (kbd "f") 'eboy-print-registers)
   (define-key eboy-mode-map (kbd "v") 'eboy-debug-toggle-verbosity)
+  (define-key eboy-mode-map (kbd "RET") 'eboy-key-start)
+  (define-key eboy-mode-map (kbd "<return>") 'eboy-key-start)
+  (define-key eboy-mode-map (kbd "r") 'eboy-key-reset)
+
   ;; by convention, major mode's keys should begin with the form C-c C-‹key›
   ;; by convention, keys of the form C-c ‹letter› are reserved for user. don't define such keys in your major mode
   )
