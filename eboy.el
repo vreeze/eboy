@@ -464,11 +464,37 @@ Little Endian."
 ;;;;;
 ;;;; JOYPAD section
 ;;;;;
-
-
+;; +++++++++ sy
+;; |
+;; ----- Y
+;; |
+;; +++++++++ sy + spritesize
 ;;;;;
 ;;;; DISPLAY section
 ;;;;;
+
+(defun eboy-display-sprites (y)
+  "Display the sprite for this line Y."
+  ;; Find the sprites on this line
+  ;; maybe combine for all lines, since I wite all lines at once.. not how it should be done... but faster.
+  (let ((count 0)
+        (sy 0)
+        (sprite_list nil))
+    ;; Object Attribute Memory (OAM) contains 40 4-byte blocks
+    (while (< count 40) ;; Max 40 sprites, max 10 per line.
+      (setq sy (- (eboy-mem-read-byte (+ #xFE00 (* count 4))) 16)) ;; -16 upperleft corner of sprite
+      (when (and (>= y sy) (< y (+ sy 8))) ;; eboy-lcdc-obj-size
+        ;; FOUND SPRITE FOR THIS LINE
+        ;;(message "sprite! line: %d count: %d" y count)
+        ;; TODO: insert sorted
+        (setq sprite_list (append sprite_list (list (list
+                                                     sy ; y
+                                                     (eboy-mem-read-byte (+ #xFE00 (* count 4) 1)) ; x
+                                                     (eboy-mem-read-byte (+ #xFE00 (* count 4) 2)) ; sprite number
+                                                     (eboy-mem-read-byte (+ #xFE00 (* count 4) 3)) ; flags
+                                                     )))))
+      (incf count))
+    sprite_list))
 
 (defun eboy-get-color (byte1 byte2 x)
   "Get from line y BYTE1 and BYTE2 the color of coordinate X."
@@ -576,13 +602,47 @@ static char *frame[] = {
       (dotimes (x 160)
         (setq c (nth (eboy-get-color-xy (mod (+ x eboy-lcd-scrollx) 256) (mod (+ y eboy-lcd-scrolly) 256)) eboy-display-unicode-list))
         (setq line (cons c line))
-        (setq line (cons c line)))
-      (insert (concat (nreverse line)))
-      (insert "\n")))
+        ;(setq line (cons c line))
+        ) ;; draw x twice, to get a more square sized display.
+      (setq line (nreverse line))
+      ;; insert the sprites
+      (let ((sprites (eboy-display-sprites y))
+            (x)
+            (ys)
+            (end)
+            (nr)
+            (tile-addr))
+        (when (not (null sprites))
+          ;;(message "%s" sprites)
+          ;; Draw sprites
+          ;; TODO: Check if off screen
+          ;; TODO: Check if sprite is flipped
+          (dolist (sprite sprites)
+            ;(message "%s" sprite)
+            (setq x (nth 1 sprite)) ; x
+            (setq end (+ x 8))
+            (setq nr (nth 2 sprite)) ;; sprite number
+            (setq ys (- y (nth 0 sprite)))
+            (setq tile-addr (+ #x8000 (* nr 16) (* ys 2)))
+            ;;(nth 3 sprite) ;; flags
+            (while (and (< x end) (< x 160))
+              ;;(message "%s" (length line))
+              (setf (nth x line) (nth (eboy-get-color (eboy-mem-read-byte tile-addr) (eboy-mem-read-byte (1+ tile-addr)) x) eboy-display-unicode-list))
+              ;;(message "%s" (length line))
+              (incf x)
+              ;;(user-error "Stop!")
+              )
+            )
+          ))
+      (insert (concat line "\n"))
+      ))
 ;;  (goto-char (point-min))
   (redisplay)
 ;;  (sit-for 0.1)
   )
+
+
+
 
 (defun eboy-lcd-cycle ()
   "Perform a single lcd cycle."
