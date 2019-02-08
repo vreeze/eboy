@@ -498,7 +498,7 @@ Little Endian."
 
 (defun eboy-get-color (byte1 byte2 x)
   "Get from line y BYTE1 and BYTE2 the color of coordinate X."
-  (let* ((bit (- 7(mod x 8)))
+  (let* ((bit (- 7 (mod x 8)))
          (mask (lsh 1 bit)))
     (logior (lsh (logand byte2 mask) (+ (* -1 bit) 1))
             (lsh (logand byte1 mask) (* -1 bit)))))
@@ -607,9 +607,9 @@ static char *frame[] = {
       (setq line (nreverse line))
       ;; insert the sprites
       (let ((sprites (eboy-display-sprites y))
-            (x)
+            (xs)
             (ys)
-            (end)
+            (xs_end)
             (nr)
             (tile-addr))
         (when (not (null sprites))
@@ -618,18 +618,18 @@ static char *frame[] = {
           ;; TODO: Check if off screen
           ;; TODO: Check if sprite is flipped
           (dolist (sprite sprites)
-            ;(message "%s" sprite)
-            (setq x (nth 1 sprite)) ; x
-            (setq end (+ x 8))
+            (message "y:%d %s" y sprite)
+            (setq xs_end (nth 1 sprite)) ; x coordinate of the sprite
+            (setq xs (- xs_end 8))
             (setq nr (nth 2 sprite)) ;; sprite number
-            (setq ys (- y (nth 0 sprite)))
+            (setq ys (- y (nth 0 sprite))) ; y coordinate of the sprite
             (setq tile-addr (+ #x8000 (* nr 16) (* ys 2)))
             ;;(nth 3 sprite) ;; flags
-            (while (and (< x end) (< x 160))
+            (while (and (< xs xs_end) (< xs 160))
               ;;(message "%s" (length line))
-              (setf (nth x line) (nth (eboy-get-color (eboy-mem-read-byte tile-addr) (eboy-mem-read-byte (1+ tile-addr)) x) eboy-display-unicode-list))
+              (setf (nth xs line) (nth (eboy-get-color (eboy-mem-read-byte tile-addr) (eboy-mem-read-byte (1+ tile-addr)) xs) eboy-display-unicode-list))
               ;;(message "%s" (length line))
-              (incf x)
+              (incf xs)
               ;;(user-error "Stop!")
               )
             )
