@@ -580,7 +580,7 @@
            (eboy-set-flag eboy-flags :N nil)
            (eboy-set-flag eboy-flags :H (>= (+ (logand eboy-rA #xF) (logand eboy-rB #xF) c) #x10))
            (eboy-set-flag eboy-flags :C (>= (+ eboy-rA eboy-rB c) #x100))
-           (eboy-add-byte eboy-rA (+ eboy-rA eboy-rB c))
+           (eboy-add-byte eboy-rA (+ eboy-rB c))
            (eboy-set-flag eboy-flags :Z (zerop eboy-rA)))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x89 ADC A,C"
@@ -588,7 +588,7 @@
            (eboy-set-flag eboy-flags :N nil)
            (eboy-set-flag eboy-flags :H (>= (+ (logand eboy-rA #xF) (logand eboy-rC #xF) c) #x10))
            (eboy-set-flag eboy-flags :C (>= (+ eboy-rA eboy-rC c) #x100))
-           (eboy-add-byte eboy-rA (+ eboy-rA eboy-rC c))
+           (eboy-add-byte eboy-rA (+ eboy-rC c))
            (eboy-set-flag eboy-flags :Z (zerop eboy-rA)))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x8A ADC A,D"
@@ -596,7 +596,7 @@
            (eboy-set-flag eboy-flags :N nil)
            (eboy-set-flag eboy-flags :H (>= (+ (logand eboy-rA #xF) (logand eboy-rD #xF) c) #x10))
            (eboy-set-flag eboy-flags :C (>= (+ eboy-rA eboy-rD c) #x100))
-           (eboy-add-byte eboy-rA (+ eboy-rA eboy-rD c))
+           (eboy-add-byte eboy-rA (+ eboy-rD c))
            (eboy-set-flag eboy-flags :Z (zerop eboy-rA)))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x8B ADC A,E"
@@ -604,7 +604,7 @@
            (eboy-set-flag eboy-flags :N nil)
            (eboy-set-flag eboy-flags :H (>= (+ (logand eboy-rA #xF) (logand eboy-rE #xF) c) #x10))
            (eboy-set-flag eboy-flags :C (>= (+ eboy-rA eboy-rE c) #x100))
-           (eboy-add-byte eboy-rA (+ eboy-rA eboy-rE c))
+           (eboy-add-byte eboy-rA (+ eboy-rE c))
            (eboy-set-flag eboy-flags :Z (zerop eboy-rA)))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x8C ADC A,H"
@@ -612,7 +612,7 @@
            (eboy-set-flag eboy-flags :N nil)
            (eboy-set-flag eboy-flags :H (>= (+ (logand eboy-rA #xF) (logand eboy-rH #xF) c) #x10))
            (eboy-set-flag eboy-flags :C (>= (+ eboy-rA eboy-rH c) #x100))
-           (eboy-add-byte eboy-rA (+ eboy-rA eboy-rH c))
+           (eboy-add-byte eboy-rA (+ eboy-rH c))
            (eboy-set-flag eboy-flags :Z (zerop eboy-rA)))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x8D ADC A,L"
@@ -620,7 +620,7 @@
            (eboy-set-flag eboy-flags :N nil)
            (eboy-set-flag eboy-flags :H (>= (+ (logand eboy-rA #xF) (logand eboy-rL #xF) c) #x10))
            (eboy-set-flag eboy-flags :C (>= (+ eboy-rA eboy-rL c) #x100))
-           (eboy-add-byte eboy-rA (+ eboy-rA eboy-rL c))
+           (eboy-add-byte eboy-rA (+ eboy-rL c))
            (eboy-set-flag eboy-flags :Z (zerop eboy-rA)))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x8E ADC A,(HL)"
@@ -629,7 +629,7 @@
            (eboy-set-flag eboy-flags :N nil)
            (eboy-set-flag eboy-flags :H (>= (+ (logand eboy-rA #xF) (logand hl #xF) c) #x10))
            (eboy-set-flag eboy-flags :C (>= (+ eboy-rA hl c) #x100))
-           (eboy-add-byte eboy-rA (+ eboy-rA hl c))
+           (eboy-add-byte eboy-rA (+ hl c))
            (eboy-set-flag eboy-flags :Z (zerop eboy-rA)))
          (incf eboy-clock-cycles 8))
        (lambda nil "0x8F ADC A,A"
@@ -637,7 +637,7 @@
            (eboy-set-flag eboy-flags :N nil)
            (eboy-set-flag eboy-flags :H (>= (+ (logand eboy-rA #xF) (logand eboy-rA #xF) c) #x10))
            (eboy-set-flag eboy-flags :C (>= (+ eboy-rA eboy-rA c) #x100))
-           (eboy-add-byte eboy-rA (+ eboy-rA eboy-rA c))
+           (eboy-add-byte eboy-rA (+ eboy-rA c))
            (eboy-set-flag eboy-flags :Z (zerop eboy-rA)))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x90 SUB B"

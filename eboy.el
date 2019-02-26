@@ -489,7 +489,7 @@ Little Endian."
         ;; TODO: insert sorted
         (setq sprite_list (append sprite_list (list (list
                                                      sy ; y
-                                                     (eboy-mem-read-byte (+ #xFE00 (* count 4) 1)) ; x
+                                                     (- (eboy-mem-read-byte (+ #xFE00 (* count 4) 1)) 8) ; x_end - sprit size
                                                      (eboy-mem-read-byte (+ #xFE00 (* count 4) 2)) ; sprite number
                                                      (eboy-mem-read-byte (+ #xFE00 (* count 4) 3)) ; flags
                                                      )))))
@@ -618,9 +618,9 @@ static char *frame[] = {
           ;; TODO: Check if off screen
           ;; TODO: Check if sprite is flipped
           (dolist (sprite sprites)
-            (message "y:%d %s" y sprite)
-            (setq xs_end (nth 1 sprite)) ; x coordinate of the sprite
-            (setq xs (- xs_end 8))
+            ;;(message "y:%d %s %s" y sprite  eboy-lcdc-obj-size)
+            (setq xs (nth 1 sprite)) ; x coordinate of the sprite
+            (setq xs_end (+ xs 8))
             (setq nr (nth 2 sprite)) ;; sprite number
             (setq ys (- y (nth 0 sprite))) ; y coordinate of the sprite
             (setq tile-addr (+ #x8000 (* nr 16) (* ys 2)))
@@ -648,15 +648,15 @@ static char *frame[] = {
   "Perform a single lcd cycle."
   ;; TODO: enable again later for speed increase?
   ;;(if eboy-lcdc-display-enable
-      (let ((screen-cycle (mod eboy-clock-cycles 70224)))
-        (setq eboy-lcd-ly (/ screen-cycle 456))
-        (when (and (= eboy-lcd-ly 143) (not eboy-display-write-done))
-          ;; (eboy-write-display-unicode)
-          (eboy-debug-update-fps)
-          (setq eboy-display-write-done t))
-        (when (and (= eboy-lcd-ly 144) eboy-display-write-done)
-          (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-vblank))
-          (setq eboy-display-write-done nil))))
+  (let ((screen-cycle (mod eboy-clock-cycles 70224)))
+    (setq eboy-lcd-ly (/ screen-cycle 456))
+    (when (and (= eboy-lcd-ly 143) (not eboy-display-write-done))
+      ;; (eboy-write-display-unicode)
+      (eboy-debug-update-fps)
+      (setq eboy-display-write-done t))
+    (when (and (= eboy-lcd-ly 144) eboy-display-write-done)
+      (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-vblank))
+      (setq eboy-display-write-done nil))))
   ;;)
 
 (defun eboy-read-keys (key)
