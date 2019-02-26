@@ -606,8 +606,7 @@ static char *frame[] = {
       (dotimes (x 160)
         (setq c (nth (eboy-get-color-xy (mod (+ x eboy-lcd-scrollx) 256) (mod (+ y eboy-lcd-scrolly) 256)) eboy-display-unicode-list))
         (setq line (cons c line))
-        ;(setq line (cons c line))
-        ) ;; draw x twice, to get a more square sized display.
+        (setq line (cons c line))) ;; draw x twice, to get a more square sized display.
       (setq line (nreverse line))
       ;; insert the sprites
       (let ((sprites (eboy-display-sprites y))
@@ -631,7 +630,9 @@ static char *frame[] = {
             ;;(nth 3 sprite) ;; flags
             (while (and (< xs xs_end) (< xs 160))
               ;;(message "%s" (length line))
-              (setf (nth xs line) (nth (eboy-get-color (eboy-mem-read-byte tile-addr) (eboy-mem-read-byte (1+ tile-addr)) xs) eboy-display-unicode-list))
+              (let ((color (nth (eboy-get-color (eboy-mem-read-byte tile-addr) (eboy-mem-read-byte (1+ tile-addr)) xs) eboy-display-unicode-list)))
+                (setf (nth (* 2 xs) line) color)
+                (setf (nth (1+ (* 2 xs)) line) color))
               ;;(message "%s" (length line))
               (incf xs)
               ;;(user-error "Stop!")
