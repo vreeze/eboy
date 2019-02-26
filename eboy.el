@@ -27,6 +27,9 @@
 (defconst eboy-im-s-trans-compl #x08 "The interrupt mask for Serial I/O transfer complete.")
 (defconst eboy-im-h2l-pins #x10 "The interrupt mask for transition from h to l of pin P10-P13.")
 
+(defconst eboy-debug-skip-frames 20 "The number of frames to skip before displaying.")
+(defconst eboy-debug-show-fps-after-sec 10.0 "The number of seconds between FPS displaying.")
+
 (defvar eboy-rom-filename nil "The file name of the loaded rom.")
 (defvar eboy-boot-rom-filename nil "The path to the boot rom.")
 (defvar eboy-boot-rom nil "The binary vector of the boot rom.")
@@ -63,7 +66,8 @@
 (defvar eboy-debug-1 t "Enable debugging info.")
 (defvar eboy-debug-2 nil "Enable debugging info.")
 (defvar eboy-debug-fps-timestamp (time-to-seconds (current-time)) "The FPS calculation.")
-(defvar eboy-debug-nr-of-frames 0 "The number of frames processed since FPS calculation.")
+(defvar eboy-debug-nr-of-frames 0 "The number of skipped frames since last display.")
+(defvar eboy-debug-nr-of-displayed-frames 0 "The number of frames processed since FPS calculation.")
 
 (defvar eboy-rA 0 "Register A.")
 (defvar eboy-rB 0 "Register B.")
@@ -686,12 +690,15 @@ static char *frame[] = {
 (defun eboy-debug-update-fps ()
   "Update the Frames Per Second counter."
   (incf eboy-debug-nr-of-frames)
-  (when (> (time-to-seconds (current-time)) (+ 2 eboy-debug-fps-timestamp))
-    (setq eboy-debug-fps-timestamp (time-to-seconds (current-time)))
-    (message "FPS: %d" (/ eboy-debug-nr-of-frames 2))
+  (when (> eboy-debug-nr-of-frames eboy-debug-skip-frames)
     (setq eboy-debug-nr-of-frames 0)
+    (incf eboy-debug-nr-of-displayed-frames)
     (eboy-write-display-unicode)
-    (eboy-read-keys (read-char nil nil 0.1))))
+    (eboy-read-keys (read-char nil nil 0.1)))
+  (when (> (time-to-seconds (current-time)) (+ eboy-debug-fps-timestamp eboy-debug-show-fps-after-sec))
+    (setq eboy-debug-fps-timestamp (time-to-seconds (current-time)))
+    (message "FPS: %.2f" (/ eboy-debug-nr-of-displayed-frames eboy-debug-show-fps-after-sec))
+    (setq eboy-debug-nr-of-displayed-frames 0)))
 
 (defun eboy-process-opcode (opcode)
   "Process OPCODE."
