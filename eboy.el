@@ -545,8 +545,9 @@ Little Endian."
 ;(puthash 2 #x2592 eboy-display-unicode-table) ; ▒
 ;(puthash 3 #x0020 eboy-display-unicode-table) ;
 
-(defvar eboy-display-unicode-list (list #x2588 #x2593 #x2592 #x0020) "List with unicode charachters for the different shades of gray.")
-
+(defvar eboy-display-unicode-list-light-theme (list #x0020 #x2592 #x2593 #x2588  ) "List with unicode charachters for the different shades of gray.")
+(defvar eboy-display-unicode-list-dark-theme (list #x2588 #x2593 #x2592 #x0020))
+(defvar eboy-display-unicode-list eboy-display-unicode-list-dark-theme)
 
 (defun eboy-write-display ()
   "Write the colors."
@@ -748,11 +749,11 @@ static char *frame[] = {
             (eboy-disable-interrupt eboy-im-h2l-pins)
             (eboy-process-interrupt #x60)))))))
 
-(defun eboy-load-rom ()
-  "Load the rom file.  For now just automatically load a test rom."
-  (interactive)
+(defun eboy-load-rom (path-to-rom)
+  "Load the rom file PATH-TO-ROM."
+  (interactive "f")
 
-  (setq eboy-rom-filename "roms/test_rom.gb")
+  (setq eboy-rom-filename path-to-rom)
   ;;(setq eboy-rom-filename "cpu_instrs/cpu_instrs.gb")
   ;;(setq eboy-rom-filename "cpu_instrs/individual/08-misc instrs.gb")
   ;;(setq eboy-rom-filename "cpu_instrs/individual/03-op sp,hl.gb")
@@ -782,17 +783,15 @@ static char *frame[] = {
   (if eboy-debug-1 (eboy-log (format "Rom size: %d bytes\n" eboy-rom-size)))
   (if eboy-debug-1 (eboy-log (format "Rom title: %s\n" (eboy-rom-title))))
 
-  ;; loop
   (let ((flags (make-bool-vector 4 nil)))
      ;; init flags 0xB0
     (eboy-set-flag flags :Z t)
     (eboy-set-flag flags :N nil)
     (eboy-set-flag flags :H t)
     (eboy-set-flag flags :C t)
-
-    ;; save flags
     (setq eboy-flags flags))
-  (message "eboy at pc: %x" eboy-pc))
+  (message "eboy at pc: %x" eboy-pc)
+  (eboy-run))
 
 (defun eboy-run ()
   "Run infinite loop."
@@ -806,7 +805,7 @@ static char *frame[] = {
 
 (setq eboy-debug-1 nil)
 (setq eboy-debug-2 nil)
-(eboy-load-rom)
+;(eboy-load-rom "roms/test_rom.gb")
 
 (defun eboy-key-reset ()
   ""
@@ -831,27 +830,7 @@ static char *frame[] = {
   (define-key eboy-mode-map (kbd "<return>") 'eboy-key-start)
   (define-key eboy-mode-map (kbd "r") 'eboy-key-reset)
 
-  ;; by convention, major mode's keys should begin with the form C-c C-‹key›
-  ;; by convention, keys of the form C-c ‹letter› are reserved for user. don't define such keys in your major mode
   )
 
-;;(define-minor-mode eboy-mode
-;;  "Eboy"
-;;  :lighter " eboy"
-;;  :keymap (let ((map (make-sparse-keymap)))
-;;            (define-key map (kbd "C-c t") 'step)
-;;            map))
-
-
-(define-derived-mode eboy-mode text-mode "eboy"
-  "eboy-mode is a major mode for editing language my.
-
-\\{eboy-mode-map}"
-
-  ;; actually no need
-  (use-local-map eboy-mode-map) ; if your keymap name is modename follow by -map, then this line is not necessary, because define-derived-mode will find it and set it for you
-
-  )
-
-(provide 'eboy-mode)
+(provide 'eboy)
 ;;; eboy.el ends here
