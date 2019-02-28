@@ -10,7 +10,7 @@ It currently runs a constant loop without delay.
 To get out of this loop, use the common C-g command.
 
 The display is drawn using unicode, by default it is set for dark theme.
-Use the unicode list below when you have a light theme install in Emacs.
+Use the unicode list below when you have a light theme installed in Emacs.
 
 ``` emacs-lisp
 (setq eboy-display-unicode-list eboy-display-unicode-list-light-theme)
