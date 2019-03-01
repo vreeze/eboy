@@ -9,7 +9,7 @@
 (defvar eboy-cpu-halted nil "Bool to indicate if the CPU is halted")
 
 (setq eboy-cpu
-      (list
+      (vector
        (lambda nil "0x00 NOP"
          (incf eboy-clock-cycles 4))
        (lambda nil "0x01 LD BC, $%04x"
@@ -1065,9 +1065,14 @@
          (incf eboy-sp 2)
          (incf eboy-clock-cycles 12))
        (lambda nil "0xD2 JP NC,nn "
-         (assert nil t "unimplemented opcode"))
-       (lambda nil "0xD3 Non existant opcode: 0x%02x"
-         (assert nil t))
+         (if (null (eboy-get-flag eboy-flags :C))
+             (progn
+               (setq eboy-pc (1- (eboy-get-short)))
+               (incf eboy-clock-cycles 4))
+           (eboy-inc-pc 2))
+         (incf eboy-clock-cycles 12))
+       (lambda nil "0xD3"
+         (assert nil t "0xD3 Non existant opcode"))
        (lambda nil "0xD4 CALL NC,nn "
          (if (null (eboy-get-flag eboy-flags :C))
              (progn
@@ -1110,9 +1115,14 @@
          (incf eboy-clock-cycles 16)
          (setq eboy-delay-enabling-interrupt-p t))
        (lambda nil "0xDA JP C,nn "
-         (assert nil t "unimplemented opcode"))
-       (lambda nil "0xDB Non existant opcode: 0x%02x"
-         (assert nil t))
+         (if (eboy-get-flag eboy-flags :C)
+             (progn
+               (setq eboy-pc (1- (eboy-get-short)))
+               (incf eboy-clock-cycles 4))
+           (eboy-inc-pc 2))
+         (incf eboy-clock-cycles 12))
+       (lambda nil "0xDB"
+         (assert nil t "0xDB Non existant opcode"))
        (lambda nil "0xDC CALL C,nn "
          (if (eboy-get-flag eboy-flags :C)
              (progn
@@ -1122,8 +1132,8 @@
                (incf eboy-clock-cycles 24))
            (incf eboy-pc 2)
            (incf eboy-clock-cycles 12)))
-       (lambda nil "0xDD Non existant opcode: 0x%02x"
-         (assert nil t))
+       (lambda nil "0xDD"
+         (assert nil t "0xDD Non existant opcode"))
        (lambda nil "0xDE SBC A,#"
          (assert nil t "unimplemented opcode")
          (incf eboy-clock-cycles))
@@ -1144,10 +1154,10 @@
          (eboy-mem-write-byte (+ 65280 eboy-rC)
           eboy-rA)
          (incf eboy-clock-cycles 8))
-       (lambda nil "0xE3 Non existant opcode: 0x%02x"
-         (assert nil t))
-       (lambda nil "0xE4 Non existant opcode: 0x%02x"
-         (assert nil t))
+       (lambda nil "0xE3"
+         (assert nil t "0xE3 Non existant opcode"))
+       (lambda nil "0xE4"
+         (assert nil t "0xE4 Non existant opcode"))
        (lambda nil "0xE5 PUSH HL"
          (decf eboy-sp 2)
          (eboy-mem-write-short eboy-sp (eboy-get-rHL))
@@ -1175,12 +1185,12 @@
          (eboy-mem-write-byte (eboy-get-short) eboy-rA)
          (eboy-inc-pc 2)
          (incf eboy-clock-cycles 16))
-       (lambda nil "0xEB Non existant opcode: 0x%02x"
-         (assert nil t))
-       (lambda nil "0xEC Non existant opcode: 0x%02x"
-         (assert nil t))
-       (lambda nil "0xED Non existant opcode: 0x%02x"
-         (assert nil t))
+       (lambda nil "0xEB"
+         (assert nil t "0xEB Non existant opcode"))
+       (lambda nil "0xEC"
+         (assert nil t "0xEC Non existant opcode"))
+       (lambda nil "0xED"
+         (assert nil t "0xED Non existant opcode"))
        (lambda nil "0xEE XOR * "
          (setq eboy-rA (logxor (eboy-get-byte) eboy-rA))
          (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
@@ -1205,13 +1215,13 @@
          (incf eboy-sp 2)
          (incf eboy-clock-cycles 12))
        (lambda nil "0xF2 LD A,($FF00+C)"
-         (assert nil t "unimplemented opcode")
+         (setq eboy-rA (eboy-mem-read-byte (+ #xFF00 eboy-rC)))
          (incf eboy-clock-cycles 8))
        (lambda nil "0xF3 DI -/- "
          (setq eboy-interrupt-master-enbl nil)
          (incf eboy-clock-cycles 4))
-       (lambda nil "0xF4 Non existant opcode: 0x%02x"
-         (assert nil t))
+       (lambda nil "0xF4"
+         (assert nil t "0xF4 Non existant opcode"))
        (lambda nil "0xF5 PUSH AF"
          (decf eboy-sp 2)
          (eboy-mem-write-short eboy-sp (eboy-get-rpair eboy-rA (eboy-flags-to-byte eboy-flags)))
@@ -1250,10 +1260,10 @@
          (setq eboy-interrupt-master-enbl t)
          (incf eboy-clock-cycles 4)
          (setq eboy-delay-enabling-interrupt-p t))
-       (lambda nil "0xFC Non existant opcode: 0x%02x"
-         (assert nil t))
-       (lambda nil "0xFD Non existant opcode: 0x%02x"
-         (assert nil t))
+       (lambda nil "0xFC"
+         (assert nil t "0xFC Non existant opcode"))
+       (lambda nil "0xFD"
+         (assert nil t "0xFD Non existant opcode"))
        (lambda nil "0xFE CP # (0x%02x)"
          (let ((n (eboy-get-byte)))
            (eboy-set-flag eboy-flags :Z (= eboy-rA n))
