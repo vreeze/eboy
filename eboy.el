@@ -27,7 +27,7 @@
 
 ;;; Commentary:
 ;; This is a Gameboy emulator for Emacs -> eboy
-;;; Commentary:
+
 (eval-when-compile (require 'cl))
 ;;(require 'cl-lib)
 
@@ -733,7 +733,7 @@ static char *frame[] = {
   "Process OPCODE."
   (if eboy-cpu-halted
       (eboy-inc-pc 1)
-    (funcall (nth opcode eboy-cpu))
+    (funcall (aref eboy-cpu opcode))
     (eboy-inc-pc 1)))
 
 (defun eboy-disable-interrupt (interrupt-mask)
