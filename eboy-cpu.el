@@ -3,6 +3,7 @@
 ;;; Commentary:
 ;;; Code:
 ;;(require 'eboy)
+(require 'eboy-macros)
 
 (defvar eboy-cpu nil "All the cpu instruction functions.")
 (defvar eboy-cpu-cb nil "All the CB opcode cpu instruction functions.")
