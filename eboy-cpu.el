@@ -83,7 +83,7 @@
            (eboy-set-flag eboy-flags :H nil))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x10 STOP -/- 10 "
-         (setq eboy-halted t)
+         (setq eboy-cpu-halted t)
          (incf eboy-clock-cycles 4))
        (lambda nil "0x11 LD DE, $%04x"
          (eboy-set-rDE (eboy-get-short))
@@ -484,7 +484,7 @@
          (eboy-mem-write-byte (eboy-get-rHL) eboy-rL)
          (incf eboy-clock-cycles 8))
        (lambda nil "0x76 HALT -/- "
-         (setq eboy-halted t)
+         (setq eboy-cpu-halted t)
          (incf eboy-clock-cycles 4))
        (lambda nil "0x77 LD (HL),A"
          (eboy-mem-write-byte (eboy-get-rHL) eboy-rA)
