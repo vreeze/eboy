@@ -3,6 +3,7 @@
 ;;; Commentary:
 ;;; Code:
 ;;(require 'eboy)
+(eval-when-compile (require 'cl))
 (require 'eboy-macros)
 
 (defvar eboy-cpu nil "All the cpu instruction functions.")
