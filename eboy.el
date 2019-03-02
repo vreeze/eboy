@@ -36,6 +36,16 @@
 (require 'eboy-macros)
 (require 'eboy-cpu)
 
+(defgroup eboy nil
+  "A Gameboy emulator"
+  :group 'games
+  :prefix "eboy-")
+
+(defcustom eboy-skip-frames 20
+  "The number of frames to skip before displaying."
+  :type 'integer
+  :group 'eboy)
+
 (defun eboy-read-bytes (path)
   "Read binary data from PATH.  Return the binary data as unibyte string."
   (with-temp-buffer
@@ -54,7 +64,6 @@
 (defconst eboy-im-s-trans-compl #x08 "The interrupt mask for Serial I/O transfer complete.")
 (defconst eboy-im-h2l-pins #x10 "The interrupt mask for transition from h to l of pin P10-P13.")
 
-(defconst eboy-debug-skip-frames 20 "The number of frames to skip before displaying.")
 (defconst eboy-debug-show-fps-after-sec 10.0 "The number of seconds between FPS displaying.")
 
 (defvar eboy-rom-filename nil "The file name of the loaded rom.")
@@ -646,7 +655,7 @@ Little Endian."
 (defun eboy-debug-update-fps ()
   "Update the Frames Per Second counter."
   (incf eboy-debug-nr-of-frames)
-  (when (> eboy-debug-nr-of-frames eboy-debug-skip-frames)
+  (when (> eboy-debug-nr-of-frames eboy-skip-frames)
     (setq eboy-debug-nr-of-frames 0)
     (incf eboy-debug-nr-of-displayed-frames)
     (eboy-write-display-unicode)
@@ -703,6 +712,7 @@ Little Endian."
             (eboy-disable-interrupt eboy-im-h2l-pins)
             (eboy-process-interrupt #x60)))))))
 
+;;;###autoload
 (defun eboy-load-rom (path-to-rom)
   "Load the rom file PATH-TO-ROM."
   (interactive "f")
