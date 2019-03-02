@@ -34,7 +34,6 @@
 
 ;;; Code:
 (require 'eboy-macros)
-;;(load "eboy-cpu.el")
 (require 'eboy-cpu)
 
 (defun eboy-read-bytes (path)
@@ -91,8 +90,7 @@
 
 ;;(defvar eboy-flags (make-bool-vector 4 t) "The flags Z(Zero) S(Negative) H(Halve Carry) and C(Carry).")
 
-(defvar eboy-debug-1 t "Enable debugging info.")
-(defvar eboy-debug-2 nil "Enable debugging info.")
+(defvar eboy-debug nil "Enable debugging info.")
 (defvar eboy-debug-fps-timestamp (time-to-seconds (current-time)) "The FPS calculation.")
 (defvar eboy-debug-nr-of-frames 0 "The number of skipped frames since last display.")
 (defvar eboy-debug-nr-of-displayed-frames 0 "The number of frames processed since FPS calculation.")
@@ -168,11 +166,7 @@
 
 (defun eboy-log (logstring)
   "Log string LOGSTRING."
-  (if eboy-debug-2 (insert logstring)))
-
-(defun eboy-msg (msg)
-  "Write a MSG string to the message buffer."
-  (if eboy-debug-2 (message "eboy: %s" msg)))
+  (if eboy-debug (insert logstring)))
 
 (defvar eboy-ram (make-vector (* 8 1024) 0) "The 8 kB interal RAM.")
 (defvar eboy-sram (make-vector (* 8 1024) 0) "The 8kB switchable RAM bank.")
@@ -507,7 +501,7 @@ Little Endian."
             (lsh (logand byte1 mask) (* -1 bit)))))
 
 (defun eboy-window-tile-map-selected-addr ()
-  "docstring"
+  "Get the tile map address."
   (if eboy-lcdc-window-tile-map-select
       #x9C00
     #x9800))
@@ -529,20 +523,7 @@ Little Endian."
 (defun eboy-get-color-xy (x y)
   "Get the color for coordinate X, Y from the bg & window tile data."
   (let ((tile-line-addr (+ (eboy-bg-&-window-tile-data-selected-addr (eboy-get-tile-id (eboy-get-tile-nr x y))) (* (mod y 8) 2))))
-  ;;(let ((tile-line-addr (+ (eboy-bg-&-window-tile-data-selected-addr (mod (eboy-get-tile-nr x y) 256)) (* (mod y 8) 2))))
     (eboy-get-color (eboy-mem-read-byte tile-line-addr) (eboy-mem-read-byte (1+ tile-line-addr)) x)))
-
-(defvar eboy-display-color-table (make-hash-table :test 'eq) "The hash table with display values.")
-(puthash 3 "15 56 15" eboy-display-color-table) ; #0F380F
-(puthash 2 "48 98 48" eboy-display-color-table) ; #309830
-(puthash 1 "139 172 15" eboy-display-color-table) ; #8BAC0F
-(puthash 0 "155 188 15" eboy-display-color-table) ; #9BBC0F
-
-;(defvar eboy-display-unicode-table (make-hash-table :test 'eq) "The hash table with unicode display values.")
-;(puthash 0 #x2588 eboy-display-unicode-table) ; █
-;(puthash 1 #x2593 eboy-display-unicode-table) ; ▓
-;(puthash 2 #x2592 eboy-display-unicode-table) ; ▒
-;(puthash 3 #x0020 eboy-display-unicode-table) ;
 
 (defvar eboy-display-unicode-list-light-theme (list #x0020 #x2592 #x2593 #x2588  ) "List with unicode charachters for the different shades of gray.")
 (defvar eboy-display-unicode-list-dark-theme (list #x2588 #x2593 #x2592 #x0020))
@@ -568,32 +549,6 @@ Little Endian."
   (display-buffer "*eboy-display*")
   ;;(switch-to-buffer "*eboy*")
   )
-
-(defun eboy-get-XPM-string ()
-  "Get the XPM image string."
-  (let ((xpm "/* XPM */
-static char *frame[] = {
-\"160  144 4 1\",
-\"0 c #9BBC0F \",
-\"1 c #8BAC0F \",
-\"2 c #309830 \",
-\"3 c #0F380F \",
-"))
-    (dotimes (y 144)
-      (setq xpm (concat xpm  "\""))
-      (dotimes (x 160)
-        (setq xpm (concat xpm (format "%s" (eboy-get-color-xy x y)))))
-      (setq xpm (concat xpm  "\",\n")))
-    (setq xpm (concat xpm "};"))))
-
-(defun eboy-write-display2 ()
-  "Write the image to the buffer, in XPM format."
-  (interactive)
-  (with-current-buffer "*eboy-display*")
-  (erase-buffer)
-  (insert (propertize " " 'display (create-image (eboy-get-XPM-string) 'xpm t)))
-  (deactivate-mark)
-  (redisplay))
 
 (defun eboy-write-display-unicode ()
   "Write the display as unicode characters."
@@ -753,9 +708,6 @@ static char *frame[] = {
   (interactive "f")
 
   (setq eboy-rom-filename path-to-rom)
-  ;;(setq eboy-rom-filename "cpu_instrs/cpu_instrs.gb")
-  ;;(setq eboy-rom-filename "cpu_instrs/individual/08-misc instrs.gb")
-  ;;(setq eboy-rom-filename "cpu_instrs/individual/03-op sp,hl.gb")
   (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
   (setq eboy-rom-size (length eboy-rom))
   (if nil
@@ -778,9 +730,9 @@ static char *frame[] = {
   (switch-to-buffer "*eboy-display*")
   (text-scale-set -8) ; only when using unicode display function
   (erase-buffer)
-  (if eboy-debug-1 (eboy-log (format "Load rom: %s\n" eboy-rom-filename)))
-  (if eboy-debug-1 (eboy-log (format "Rom size: %d bytes\n" eboy-rom-size)))
-  (if eboy-debug-1 (eboy-log (format "Rom title: %s\n" (eboy-rom-title))))
+  (eboy-log (format "Load rom: %s\n" eboy-rom-filename))
+  (eboy-log (format "Rom size: %d bytes\n" eboy-rom-size))
+  (eboy-log (format "Rom title: %s\n" (eboy-rom-title)))
 
   (let ((flags (make-bool-vector 4 nil)))
      ;; init flags 0xB0
@@ -801,35 +753,7 @@ static char *frame[] = {
     (eboy-process-interrupts)
     (eboy-lcd-cycle)))
 
-
-(setq eboy-debug-1 nil)
-(setq eboy-debug-2 nil)
 ;(eboy-load-rom "roms/test_rom.gb")
-
-(defun eboy-key-reset ()
-  ""
-  (interactive)
-  (message "key reset")
-  (setq eboy-joypad-button-keys (logior eboy-joypad-button-keys #xF)))
-
-(defun eboy-key-start ()
-  ""
-  (interactive)
-  (message "key start")
-  (setq eboy-joypad-button-keys (logand eboy-joypad-button-keys #x7)))
-
-(defvar eboy-mode-map nil "Keymap for `eboy-mode'.")
-
-(progn
-  (setq eboy-mode-map (make-sparse-keymap))
-  (define-key eboy-mode-map (kbd "<f5>") 'eboy-debug-step)
-  (define-key eboy-mode-map (kbd "f") 'eboy-print-registers)
-  (define-key eboy-mode-map (kbd "v") 'eboy-debug-toggle-verbosity)
-  (define-key eboy-mode-map (kbd "RET") 'eboy-key-start)
-  (define-key eboy-mode-map (kbd "<return>") 'eboy-key-start)
-  (define-key eboy-mode-map (kbd "r") 'eboy-key-reset)
-
-  )
 
 (provide 'eboy)
 ;;; eboy.el ends here

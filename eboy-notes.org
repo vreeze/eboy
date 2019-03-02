@@ -1,0 +1,39 @@
+** Eboy notes
+* Graphics using XPM
+#+BEGIN_SRC emacs-lisp
+
+(defvar eboy-display-color-table (make-hash-table :test 'eq) "The hash table with display values.")
+(puthash 3 "15 56 15" eboy-display-color-table) ; #0F380F
+(puthash 2 "48 98 48" eboy-display-color-table) ; #309830
+(puthash 1 "139 172 15" eboy-display-color-table) ; #8BAC0F
+(puthash 0 "155 188 15" eboy-display-color-table) ; #9BBC0F
+
+
+(defun eboy-get-XPM-string ()
+  "Get the XPM image string."
+  (let ((xpm "/* XPM */
+static char *frame[] = {
+\"160  144 4 1\",
+\"0 c #9BBC0F \",
+\"1 c #8BAC0F \",
+\"2 c #309830 \",
+\"3 c #0F380F \",
+"))
+    (dotimes (y 144)
+      (setq xpm (concat xpm  "\""))
+      (dotimes (x 160)
+        (setq xpm (concat xpm (format "%s" (eboy-get-color-xy x y)))))
+      (setq xpm (concat xpm  "\",\n")))
+    (setq xpm (concat xpm "};"))))
+
+(defun eboy-write-display2 ()
+  "Write the image to the buffer, in XPM format."
+  (interactive)
+  (with-current-buffer "*eboy-display*")
+  (erase-buffer)
+  (insert (propertize " " 'display (create-image (eboy-get-XPM-string) 'xpm t)))
+  (deactivate-mark)
+  (redisplay))
+
+
+#+END_SRC
