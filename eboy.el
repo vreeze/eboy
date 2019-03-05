@@ -97,6 +97,8 @@
 
 (defvar eboy-delay-enabling-interrupt-p nil "Enabling interrupts is delayd with one instruction.")
 
+(defvar eboy-timer-cycles 0 "Timer cycle counter.")
+
 ;;(defvar eboy-flags (make-bool-vector 4 t) "The flags Z(Zero) S(Negative) H(Halve Carry) and C(Carry).")
 
 (defvar eboy-debug nil "Enable debugging info.")
@@ -665,6 +667,16 @@ Little Endian."
     (message "FPS: %.2f" (/ eboy-debug-nr-of-displayed-frames eboy-debug-show-fps-after-sec))
     (setq eboy-debug-nr-of-displayed-frames 0)))
 
+(defun eboy-timer-cycle ()
+  "Update and check timer."
+  (let ((delta (- eboy-clock-cycles eboy-timer-cycles)))
+    (when (> delta 256) ;; 16384 Hertz
+      (let ((div-reg-val (aref eboy-io 4)))
+        (if (= div-reg-val 255)
+            (aset eboy-io 4 0))
+        (aset eboy-io 4 (1+ div-reg-val)))
+      (setq eboy-timer-cycles (+ eboy-timer-cycles 256)))))
+
 (defun eboy-process-opcode (opcode)
   "Process OPCODE."
   (if eboy-cpu-halted
@@ -737,6 +749,7 @@ Little Endian."
   (setq eboy-lcd-ly 0)
   (setq eboy-lcd-scrollx 0)
   (setq eboy-lcd-scrolly 0)
+  (setq eboy-timer-cycles 0)
   (switch-to-buffer "*eboy-display*")
   (text-scale-set -8) ; only when using unicode display function
   (erase-buffer)
@@ -761,7 +774,8 @@ Little Endian."
   (while t
     (eboy-process-opcode (eboy-mem-read-byte eboy-pc))
     (eboy-process-interrupts)
-    (eboy-lcd-cycle)))
+    (eboy-lcd-cycle)
+    (eboy-timer-cycle)))
 
 ;(eboy-load-rom "roms/test_rom.gb")
 
