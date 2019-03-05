@@ -28,7 +28,7 @@ Emacs :)
 
 ## Installing
 
-For now just buffer evaluate `eboy-cpu.el` and `eboy.el`.
+For now just buffer evaluate `eboy-macros.el`, `eboy-cpu.el` and `eboy.el`.
 
 ## Usage
 
