@@ -177,7 +177,7 @@
 
 (defun eboy-log (logstring)
   "Log string LOGSTRING."
-  (if eboy-debug (insert logstring)))
+  (if eboy-debug (message logstring)))
 
 (defvar eboy-ram (make-vector (* 8 1024) 0) "The 8 kB interal RAM.")
 (defvar eboy-sram (make-vector (* 8 1024) 0) "The 8kB switchable RAM bank.")
@@ -359,7 +359,7 @@
     (aset eboy-ram (- address #xC000) data))
    ((and (>= address #xA000) (< address #xC000))
     ;; (message "Write 8kB switchable RAM bank")
-    (aset eboy-sram (- address #xC000) data))
+    (aset eboy-sram (- address #xA000) data))
    ((and (>= address #x8000) (< address #xA000))
     ;; (message "Write 8kB Video RAM")
     (aset eboy-vram (- address #x8000) data))
@@ -732,6 +732,7 @@ Little Endian."
   (setq eboy-rom-filename path-to-rom)
   (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
   (setq eboy-rom-size (length eboy-rom))
+  (assert (<= eboy-rom-size (* 32 1024)) t "Currently only 32 kB roms are supported")
   (if nil
       (progn
         (setq eboy-boot-rom-filename "boot/DMG_ROM.bin")
