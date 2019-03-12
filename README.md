@@ -45,4 +45,4 @@ Load a rom using the `M-x eboy-load-rom` command.
   | left        | j        |
   | right       | l        |
 
-To continue a game after you stopped pressed `C-g`, use the `M-x eboy-run` command.
+To continue a game after you pressed `C-g`, use the `M-x eboy-run` command.
