@@ -7,7 +7,7 @@ Just got Tetris starting up, not tested with anything else.
 ![](gif/tetris.gif)
 
 It currently runs a constant loop without delay.
-To get out of this loop, use the common C-g command.
+To get out of this loop, use the common `C-g` command.
 
 The display is drawn using unicode, by default it is set for dark theme.
 Use the unicode list below when you have a light theme installed in Emacs.
@@ -28,11 +28,11 @@ Emacs :)
 
 ## Installing
 
-For now just buffer evaluate `eboy-macros.el`, `eboy-cpu.el` and `eboy.el`.
+For now just `M-x eval-buffer` or `M-x byte-compile-file` the following files: `eboy-macros.el`, `eboy-cpu.el` and `eboy.el`.
 
 ## Usage
 
-Load a rom using the `M-x eboy-load-rom` command
+Load a rom using the `M-x eboy-load-rom` command.
 
   | Gameboy     | Eboy     |
   |------------:|---------:|
@@ -44,3 +44,5 @@ Load a rom using the `M-x eboy-load-rom` command
   | up          | i        |
   | left        | j        |
   | right       | l        |
+
+To continue a game after you stopped pressed `C-g`, use the `M-x eboy-run` command.

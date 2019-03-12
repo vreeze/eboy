@@ -661,7 +661,7 @@ Little Endian."
     (setq eboy-debug-nr-of-frames 0)
     (incf eboy-debug-nr-of-displayed-frames)
     (eboy-write-display-unicode)
-    (eboy-read-keys (read-char nil nil 0.1)))
+    (eboy-read-keys (read-char-exclusive nil nil 0.1)))
   (when (> (time-to-seconds (current-time)) (+ eboy-debug-fps-timestamp eboy-debug-show-fps-after-sec))
     (setq eboy-debug-fps-timestamp (time-to-seconds (current-time)))
     (message "FPS: %.2f" (/ eboy-debug-nr-of-displayed-frames eboy-debug-show-fps-after-sec))
@@ -732,7 +732,10 @@ Little Endian."
   (setq eboy-rom-filename path-to-rom)
   (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
   (setq eboy-rom-size (length eboy-rom))
-  (assert (<= eboy-rom-size (* 32 1024)) t "Currently only 32 kB roms are supported")
+
+  (when (> eboy-rom-size (* 32 1024))
+    (error "Currently only 32 kB roms are supported"))
+
   (if nil
       (progn
         (setq eboy-boot-rom-filename "boot/DMG_ROM.bin")
