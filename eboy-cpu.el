@@ -1374,13 +1374,13 @@
           (incf eboy-clock-cycles 8))
         (lambda nil "0x06 RLC (HL) "
           (let* ((hlb (eboy-mem-read-byte (eboy-get-rHL)))
-                 (b (= (lsh hlb -7) 1))
+                 (b (lsh hlb -7))
                  (hlbn (logior (lsh hlb 1) b)))
             (eboy-mem-write-byte (eboy-get-rHL) hlbn)
             (eboy-set-flag eboy-flags :Z (zerop hlbn))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
-            (eboy-set-flag eboy-flags :C b))
+            (eboy-set-flag eboy-flags :C (= b 1)))
           (incf eboy-clock-cycles 16))
         (lambda nil "0x07 RLC A"
           (let ((b (= (lsh eboy-rA -7) 1)))
@@ -1686,8 +1686,8 @@
           (eboy-set-flag eboy-flags :H nil)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x2E SRA (HL) "
-          (let ((hlb (eboy-mem-read-byte (eboy-get-rHL)))
-                (hlbn (logior (lsh hlb -1) (logand hlb #x80))))
+          (let* ((hlb (eboy-mem-read-byte (eboy-get-rHL)))
+                 (hlbn (logior (lsh hlb -1) (logand hlb #x80))))
             (eboy-set-flag eboy-flags :C (= (logand hlb #x01) 1))
             (eboy-mem-write-byte (eboy-get-rHL) hlb)
             (eboy-set-flag eboy-flags :Z (zerop hlb))
