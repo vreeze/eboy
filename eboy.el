@@ -119,6 +119,12 @@
 (defvar eboy-joypad-direction-keys #xF "The direction keys of the joypad, |Down|Up|Left|Right| (0=pressed).")
 (defvar eboy-joypad-button-keys #xF "The button keys of the joypad, |Start|Select|B|A| (0=pressed).")
 
+;; Memory banks
+(defvar eboy-rom-bank-nr 1 "The currently selected ROM bank.")
+(defvar eboy-ram-bank-nr 0 "The currently selected RAM bank.")
+(defvar eboy-mem-bank-type nil "The memorybank type of the ROM.")
+
+
 (defun eboy-byte-to-signed (byte)
   "Convert BYTE to signed number."
   ;;(* (1+ (logxor byte #xFF)) -1)
@@ -184,10 +190,11 @@
           (insert "\n")))))
 
 (defvar eboy-ram (make-vector (* 8 1024) 0) "The 8 kB interal RAM.")
-(defvar eboy-sram (make-vector (* 8 1024) 0) "The 8kB switchable RAM bank.")
+(defvar eboy-ram-banks (make-vector (* 4 8 1024) 0) "The 4 x 8kB of RAM banks, maximum needed.")
 (defvar eboy-hram (make-vector 128 0) "The 128 bytes high RAM.")
 (defvar eboy-vram (make-vector (* 8 1024) 0) "The 8 kB interal Video RAM.")
 (defvar eboy-io (make-vector #x4C 0) "The 8 IO registers.")
+
 
 ;;; Memory:
 ;; Iterrupt Enable Register
@@ -220,10 +227,13 @@
   "Read byte from ADDRESS."
   ;; most frequent accessed memory on top.
   (cond
-   ((and (>= address #x0000) (< address #x8000))
-    ;; 32kB Cartidge
-    (aref eboy-rom address));; 16kB ROM bank #0 & 16kB switchable ROM bank. The lower 256 bytes contain either the boot-rom or the first 256 bytes of the rom.
-
+   ;; 32kB Cartidge,
+   ((and (>= address #x0000) (< address #x4000))
+    ;; 16kB ROM bank #0. The lower 256 bytes contain either the boot-rom or the first 256 bytes of the rom.
+    (aref eboy-rom address))
+   ((and (>= address #x4000) (< address #x8000))
+    ;; 16kB switchable ROM bank.
+    (aref eboy-rom (+ address (* (- eboy-rom-bank-nr 1) #x4000))))
    ((and (>= address #xFF80) (<= address #xFFFF))
       ;;(message "Internal RAM")
       (if (= address #xFFFF)
@@ -277,22 +287,22 @@
         data))
 
      ((and (>= address #xFEA0) (< address #xFF00))
-      ;;(message "Empty but unusable for I/O")
+      ;; Empty but unusable for I/O
       (aref eboy-ram (- address #xE000)))
      ((and (>= address #xFE00) (< address #xFEA0))
-      ;;(message "Sprite Attrib Memory (OAM)")
+      ;; Sprite Attrib Memory (OAM)
       (aref eboy-ram (- address #xE000)))
      ((and (>= address #xE000) (< address #xFE00))
-      ;;(message "Echo of 8kB Internal RAM")
+      ;; Echo of 8kB Internal RAM
       (aref eboy-ram (- address #xE000)))
      ((and (>= address #xC000) (< address #xE000))
-      ;;(message "8kB Internal RAM")
+      ;; 8kB Internal RAM
       (aref eboy-ram (- address #xC000)))
      ((and (>= address #xA000) (< address #xC000))
-      ;;(message "8kB switchable RAM bank")
-      (aref eboy-sram (- address #xA000)))
+      ;; 8kB switchable RAM bank
+      (aref eboy-ram-banks (+ (- address #xA000) (* eboy-ram-bank-nr #x2000))))
      ((and (>= address #x8000) (< address #xA000))
-      ;;(message "8kB Video RAM")
+      ;; 8kB Video RAM
       (aref eboy-vram (- address #x8000)))
      ))
 
@@ -728,6 +738,48 @@ Little Endian."
             (eboy-disable-interrupt eboy-im-h2l-pins)
             (eboy-process-interrupt #x60)))))))
 
+(defun eboy-get-rom-cartridge-type ()
+  "Retrieve cartridge type."
+  (let ((ct (aref eboy-rom #x147)))
+    (cond
+     ((eq ct #x00) (setq eboy-mem-bank-type 'rom-only)) ;; 00h  ROM ONLY
+     ((eq ct #x01) (setq eboy-mem-bank-type 'mbc1))     ;; 01h  MBC1
+     ((eq ct #x02) (setq eboy-mem-bank-type 'mbc1))     ;; 02h  MBC1+RAM
+     ((eq ct #x03) (setq eboy-mem-bank-type 'mbc1))     ;; 03h  MBC1+RAM+BATTERY
+     ((eq ct #x05) (setq eboy-mem-bank-type 'mbc2))     ;; 05h  MBC2
+     ((eq ct #x06) (setq eboy-mem-bank-type 'mbc2))     ;; 06h  MBC2+BATTERY
+     ;; 08h  ROM+RAM
+     ;; 09h  ROM+RAM+BATTERY
+     ;; 0Bh  MMM01
+     ;; 0Ch  MMM01+RAM
+     ;; 0Dh  MMM01+RAM+BATTERY
+     ;; 0Fh  MBC3+TIMER+BATTERY
+     ;; 10h  MBC3+TIMER+RAM+BATTERY
+     ;; 11h  MBC3
+     ;; 12h  MBC3+RAM
+     ;; 13h  MBC3+RAM+BATTERY
+     ;; 15h  MBC4
+     ;; 16h  MBC4+RAM
+     ;; 17h  MBC4+RAM+BATTERY
+     ;; 19h  MBC5
+     ;; 1Ah  MBC5+RAM
+     ;; 1Bh  MBC5+RAM+BATTERY
+     ;; 1Ch  MBC5+RUMBLE
+     ;; 1Dh  MBC5+RUMBLE+RAM
+     ;; 1Eh  MBC5+RUMBLE+RAM+BATTERY
+     ;; FCh  POCKET CAMERA
+     ;; FDh  BANDAI TAMA5
+     ;; FEh  HuC3
+     ;; FFh  HuC1+RAM+BATTERY
+     (t (error "Memory bank type unsupported %d" ct)))
+
+    (eboy-log (format "Memory bank type: %s (%d)" eboy-mem-bank-type ct))))
+
+(defun eboy-read-cartridge-header ()
+  "Read the cartridge header."
+  (eboy-log (format "Rom title: %s" (eboy-rom-title)))
+  (eboy-get-rom-cartridge-type))
+
 ;;;###autoload
 (defun eboy-load-rom (path-to-rom)
   "Load the rom file PATH-TO-ROM."
@@ -760,12 +812,11 @@ Little Endian."
   (setq eboy-timer-cycles 0)
   (eboy-log (format "Load rom: %s" eboy-rom-filename))
   (eboy-log (format "Rom size: %d bytes" eboy-rom-size))
+  (eboy-read-cartridge-header)
+
   (switch-to-buffer "*eboy-display*")
   (text-scale-set -8) ; only when using unicode display function
   (erase-buffer)
-  (eboy-log (format "Load rom: %s\n" eboy-rom-filename))
-  (eboy-log (format "Rom size: %d bytes\n" eboy-rom-size))
-  (eboy-log (format "Rom title: %s\n" (eboy-rom-title)))
 
   (let ((flags (make-bool-vector 4 nil)))
      ;; init flags 0xB0
