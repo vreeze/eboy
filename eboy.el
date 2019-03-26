@@ -101,7 +101,7 @@
 
 ;;(defvar eboy-flags (make-bool-vector 4 t) "The flags Z(Zero) S(Negative) H(Halve Carry) and C(Carry).")
 
-(defvar eboy-debug nil "Enable debugging info.")
+(defvar eboy-debug t "Enable debugging info.")
 (defvar eboy-debug-fps-timestamp (time-to-seconds (current-time)) "The FPS calculation.")
 (defvar eboy-debug-nr-of-frames 0 "The number of skipped frames since last display.")
 (defvar eboy-debug-nr-of-displayed-frames 0 "The number of frames processed since FPS calculation.")
@@ -174,10 +174,14 @@
   (eboy-mem-write-byte #xFF4B #x00) ; WX
   (eboy-mem-write-byte #xFFFF #x00)) ; IE
 
-
 (defun eboy-log (logstring)
-  "Log string LOGSTRING."
-  (if eboy-debug (message logstring)))
+  "Writes LOGSTRING into the *Eboy Messages* buffer."
+  (if eboy-debug
+      (let ((log-buffer (get-buffer-create "*Eboy Messages*")))
+        (with-current-buffer log-buffer
+          (goto-char (point-max))
+          (insert logstring)
+          (insert "\n")))))
 
 (defvar eboy-ram (make-vector (* 8 1024) 0) "The 8 kB interal RAM.")
 (defvar eboy-sram (make-vector (* 8 1024) 0) "The 8kB switchable RAM bank.")
@@ -754,6 +758,8 @@ Little Endian."
   (setq eboy-lcd-scrollx 0)
   (setq eboy-lcd-scrolly 0)
   (setq eboy-timer-cycles 0)
+  (eboy-log (format "Load rom: %s" eboy-rom-filename))
+  (eboy-log (format "Rom size: %d bytes" eboy-rom-size))
   (switch-to-buffer "*eboy-display*")
   (text-scale-set -8) ; only when using unicode display function
   (erase-buffer)

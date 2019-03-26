@@ -46,3 +46,5 @@ Load a rom using the `M-x eboy-load-rom` command.
   | right       | l        |
 
 To continue a game after you pressed `C-g`, use the `M-x eboy-run` command.
+
+Eboy related messages are written to the buffer `*Eboy Messages*`.
