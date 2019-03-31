@@ -124,6 +124,7 @@
 (defvar eboy-rom-bank-nr 1 "The currently selected ROM bank.")
 (defvar eboy-ram-bank-nr 0 "The currently selected RAM bank.")
 (defvar eboy-mem-bank-type nil "The memorybank type of the ROM.")
+(defvar eboy-ram-bank-enable nil "RAM bank is enabled.")
 
 
 (defun eboy-byte-to-signed (byte)
@@ -361,31 +362,44 @@
      ((= address #xFF00) )) ;; Write P1: Joy Pad info and system type register.
     (aset eboy-io (- address #xFF00) data))
    ((and (>= address #xFEA0) (< address #xFF00))
-    ;; (message "Write Empty but unusable for I/O")
+    ;; Write Empty but unusable for I/O
     (aset eboy-ram (- address #xE000) data))
    ((and (>= address #xFE00) (< address #xFEA0))
-    ;; (message "Write Sprite Attrib Memory (OAM)")
+    ;; Write Sprite Attrib Memory (OAM)
     (aset eboy-ram (- address #xE000) data))
    ((and (>= address #xE000) (< address #xFE00))
-    ;; (message "Write Echo of 8kB Internal RAM")
+    ;; Write Echo of 8kB Internal RAM
     (aset eboy-ram (- address #xE000) data))
    ((and (>= address #xC000) (< address #xE000))
-    ;; (message "Write 8kB Internal RAM")
+    ;; Write 8kB Internal RAM
     (aset eboy-ram (- address #xC000) data))
    ((and (>= address #xA000) (< address #xC000))
-    ;; (message "Write 8kB switchable RAM bank")
-    (aset eboy-sram (- address #xA000) data))
+    ;; Write 8kB switchable RAM bank
+    (when eboy-ram-bank-enable
+      (aset eboy-ram-banks (+ (- address #xA000) (* eboy-ram-bank-nr #x2000)) data)))
    ((and (>= address #x8000) (< address #xA000))
-    ;; (message "Write 8kB Video RAM")
+    ;; Write 8kB Video RAM
     (aset eboy-vram (- address #x8000) data))
 
    ;; 32kB Cartidge
-   ((and (>= address #x4000) (< address #x8000))
-    ;;(assert nil t "Non writable: 16kB switchable ROM bank")
-    )
-   ((and (>= address #x0000) (< address #x4000))
-    ;; Tetris writes to 0x2000... why? memory bank select.
-    ;;(assert nil t "Non writable: 16kB ROM bank #0")
+   ((and (>= address #x0000) (< address #x8000))
+    (cond
+     ((and (>= address #x0000) (< address #x2000))
+      ;; RAM Enable
+      (setq eboy-ram-bank-enable (= (logand data #x0F) #x0A)))
+     ((and (>= address #x2000) (< address #x4000))
+      ;; ROM Bank Number
+      (setq eboy-rom-bank-nr (logior (logand eboy-rom-bank-nr #xE0) (logand data #x1F)))
+      (when (or (= eboy-rom-bank-nr #x00) (= eboy-rom-bank-nr #x20) (= eboy-rom-bank-nr #x40) (= eboy-rom-bank-nr #x60))
+        (incf eboy-rom-bank-nr)))
+     ((and (>= address #x4000) (< address #x6000))
+      ;; RAM Bank Number / Upper Bits of ROM Bank
+      (if eboy-rom-banking-mode
+          (setq eboy-rom-bank-nr (logior (logand eboy-rom-bank-nr #x1F) (logand data #xE0)))
+        (setq eboy-ram-bank-nr (logand data #x03))))
+     ((and (>= address #x6000) (< address #x8000))
+      ;; ROM/RAM Mode Select
+      (setq eboy-rom-banking-mode (= (logand data #x01) 0))))
     )))
 
 (defun eboy-mem-write-short (address data)
@@ -796,9 +810,6 @@ Little Endian."
   (setq eboy-rom-filename path-to-rom)
   (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
   (setq eboy-rom-size (length eboy-rom))
-
-  (when (> eboy-rom-size (* 32 1024))
-    (error "Currently only 32 kB roms are supported"))
 
   (if nil
       (progn
