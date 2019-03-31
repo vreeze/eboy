@@ -65,6 +65,7 @@
 (defconst eboy-im-h2l-pins #x10 "The interrupt mask for transition from h to l of pin P10-P13.")
 
 (defconst eboy-debug-show-fps-after-sec 10.0 "The number of seconds between FPS displaying.")
+(defconst eboy-message-buffer "*Eboy Messages*" "The eboy message buffer.")
 
 (defvar eboy-rom-filename nil "The file name of the loaded rom.")
 (defvar eboy-boot-rom-filename nil "The path to the boot rom.")
@@ -183,7 +184,7 @@
 (defun eboy-log (logstring)
   "Writes LOGSTRING into the *Eboy Messages* buffer."
   (if eboy-debug
-      (let ((log-buffer (get-buffer-create "*Eboy Messages*")))
+      (let ((log-buffer (get-buffer-create eboy-message-buffer)))
         (with-current-buffer log-buffer
           (goto-char (point-max))
           (insert logstring)
@@ -780,11 +781,18 @@ Little Endian."
   (eboy-log (format "Rom title: %s" (eboy-rom-title)))
   (eboy-get-rom-cartridge-type))
 
+(defun eboy-kill-message-buf ()
+  "Kill the message buffer of the previous rom."
+  (let ((b (get-buffer eboy-message-buffer)))
+    (when b
+      (kill-buffer b))))
+
 ;;;###autoload
 (defun eboy-load-rom (path-to-rom)
   "Load the rom file PATH-TO-ROM."
   (interactive "f")
 
+  (eboy-kill-message-buf)
   (setq eboy-rom-filename path-to-rom)
   (setq eboy-rom (vconcat (eboy-read-bytes eboy-rom-filename)))
   (setq eboy-rom-size (length eboy-rom))
