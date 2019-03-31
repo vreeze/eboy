@@ -829,6 +829,15 @@ Little Endian."
   (setq eboy-lcd-scrollx 0)
   (setq eboy-lcd-scrolly 0)
   (setq eboy-timer-cycles 0)
+
+  ;; init mem banking
+  (setq eboy-rom-bank-nr 1)
+  (setq eboy-ram-bank-nr 0)
+  (setq eboy-mem-bank-type nil)
+  (setq eboy-ram-bank-enable nil)
+
+  (setq eboy-cpu-halted nil)
+
   (eboy-log (format "Load rom: %s" eboy-rom-filename))
   (eboy-log (format "Rom size: %d bytes" eboy-rom-size))
   (eboy-read-cartridge-header)

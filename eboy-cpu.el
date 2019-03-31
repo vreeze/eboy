@@ -8,7 +8,7 @@
 
 (defvar eboy-cpu nil "All the cpu instruction functions.")
 (defvar eboy-cpu-cb nil "All the CB opcode cpu instruction functions.")
-(defvar eboy-cpu-halted nil "Bool to indicate if the CPU is halted")
+(defvar eboy-cpu-halted nil "Bool to indicate if the CPU is halted.")
 
 (setq eboy-cpu
       (vector
