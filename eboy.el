@@ -386,20 +386,29 @@
     (cond
      ((and (>= address #x0000) (< address #x2000))
       ;; RAM Enable
-      (setq eboy-ram-bank-enable (= (logand data #x0F) #x0A)))
+      (when (or (eq eboy-mem-bank-type 'mbc1)
+                (and (eq eboy-mem-bank-type 'mbc2) (= (logand address #x0100) #x0000)))
+        (setq eboy-ram-bank-enable (= (logand data #x0F) #x0A))))
+
      ((and (>= address #x2000) (< address #x4000))
       ;; ROM Bank Number
-      (setq eboy-rom-bank-nr (logior (logand eboy-rom-bank-nr #xE0) (logand data #x1F)))
+      (cond
+       ((eq eboy-mem-bank-type 'mbc1) (setq eboy-rom-bank-nr (logior (logand eboy-rom-bank-nr #xE0) (logand data #x1F))))
+       ((eq eboy-mem-bank-type 'mbc2) (setq eboy-rom-bank-nr (logand data #x0F))))
       (when (or (= eboy-rom-bank-nr #x00) (= eboy-rom-bank-nr #x20) (= eboy-rom-bank-nr #x40) (= eboy-rom-bank-nr #x60))
         (incf eboy-rom-bank-nr)))
+
      ((and (>= address #x4000) (< address #x6000))
       ;; RAM Bank Number / Upper Bits of ROM Bank
-      (if eboy-rom-banking-mode
-          (setq eboy-rom-bank-nr (logior (logand eboy-rom-bank-nr #x1F) (logand data #xE0)))
-        (setq eboy-ram-bank-nr (logand data #x03))))
+      (when (eq eboy-mem-bank-type 'mbc1)
+        (if eboy-rom-banking-mode
+            (setq eboy-rom-bank-nr (logior (logand eboy-rom-bank-nr #x1F) (logand data #xE0)))
+          (setq eboy-ram-bank-nr (logand data #x03)))))
+
      ((and (>= address #x6000) (< address #x8000))
       ;; ROM/RAM Mode Select
-      (setq eboy-rom-banking-mode (= (logand data #x01) 0))))
+      (when (eq eboy-mem-bank-type 'mbc1)
+        (setq eboy-rom-banking-mode (= (logand data #x01) 0)))))
     )))
 
 (defun eboy-mem-write-short (address data)
