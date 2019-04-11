@@ -98,7 +98,13 @@
 
 (defvar eboy-delay-enabling-interrupt-p nil "Enabling interrupts is delayd with one instruction.")
 
+;; Timer and Divider Registers
 (defvar eboy-timer-cycles 0 "Timer cycle counter.")
+(defvar eboy-timer-tac-timer-started nil "Timer Control - Timer Started.")
+(defvar eboy-timer-tac-input-clock-select 0 "Timer Control - Input Clock Select.")
+(defvar eboy-timer-262144hz-counter-div 0 "Every 262144 Hz this gets increased, for DIV register.")
+(defvar eboy-timer-262144hz-counter-tac 0 "Every 262144 Hz this gets increased, for TAC register.")
+
 
 ;;(defvar eboy-flags (make-bool-vector 4 t) "The flags Z(Zero) S(Negative) H(Halve Carry) and C(Carry).")
 
@@ -353,10 +359,17 @@
       (setq eboy-lcdc-bg-window-on (= (logand data #x01) #x01) ))
      ;; in between sound registers, but not consecutive, some unknow address.
      ((= address #xFF0F) (setq eboy-interrupt-pending data))
-     ((= address #xFF07)  ) ;; Write TAC: Timer Control.
+     ((= address #xFF07) ;; Write TAC: Timer Control.
+      (setq eboy-timer-tac-timer-started (= (logand data #x04) #x04))
+      (let ((select (logior data #x03)))
+        (cond
+         ((= select 0) (setq eboy-timer-tac-input-clock-select 64))    ;;   4096 Hz
+         ((= select 3) (setq eboy-timer-tac-input-clock-select 16))    ;;  16384 Hz
+         ((= select 2) (setq eboy-timer-tac-input-clock-select 4))     ;;  65536 Hz
+         ((= select 1) (setq eboy-timer-tac-input-clock-select 1)))))  ;; 262144 Hz
      ((= address #xFF06)  ) ;; Write TMA: Timer Modulo.
      ((= address #xFF05)  ) ;; Write TIMA: Timer Counter.
-     ((= address #xFF04)  ) ;; Write DIV: Divider Register.
+     ((= address #xFF04)  (setq data 0)) ;; Write DIV: Divider Register.
      ((= address #xFF02)  ) ;; Write SC: SIO control.
      ((= address #xFF01)  ) ;; Write SB: Serial transfer data.
      ((= address #xFF00) )) ;; Write P1: Joy Pad info and system type register.
@@ -708,12 +721,24 @@ Little Endian."
 (defun eboy-timer-cycle ()
   "Update and check timer."
   (let ((delta (- eboy-clock-cycles eboy-timer-cycles)))
-    (when (> delta 256) ;; 16384 Hertz
-      (let ((div-reg-val (aref eboy-io 4)))
-        (if (= div-reg-val 255)
-            (aset eboy-io 4 0))
-        (aset eboy-io 4 (1+ div-reg-val)))
-      (setq eboy-timer-cycles (+ eboy-timer-cycles 256)))))
+    (when (>= delta 16) ;; 262144 Hz
+      (1+ eboy-timer-262144hz-counter-div)
+
+      (when (= eboy-timer-262144hz-counter-div 16) ;; 16384 Hz
+        (if (= (aref eboy-io 4) 255)             ;; DIV (FF04) overflowing
+            (aset eboy-io 4 0)
+          (aset eboy-io 4 (1+ (aref eboy-io 4))))
+       (setq eboy-timer-262144hz-counter-div 0))
+
+      (when (and eboy-timer-tac-timer-started (= eboy-timer-262144hz-counter-tac eboy-timer-tac-input-clock-select))
+        (if (= (aref eboy-io 5) 255)             ;; TIMA (FF05) overflowing
+            (progn
+              (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-tmr-overflow))
+              (aset eboy-io 5 (aref eboy-io 6))) ;; Load TMA (FF06) into TIMA (FF05)
+          (aset eboy-io 5 (1+ (aref eboy-io 5))))
+        (setq eboy-timer-262144hz-counter-tac 0))
+
+      (setq eboy-timer-cycles (+ eboy-timer-cycles 16)))))
 
 (defun eboy-process-opcode (opcode)
   "Process OPCODE."
@@ -838,6 +863,10 @@ Little Endian."
   (setq eboy-lcd-scrollx 0)
   (setq eboy-lcd-scrolly 0)
   (setq eboy-timer-cycles 0)
+  (setq eboy-timer-tac-timer-started 0)
+  (setq eboy-timer-262144hz-counter-tac 0)
+  (setq eboy-timer-262144hz-counter-div 0)
+  (setq eboy-timer-tac-input-clock-select 0)
 
   ;; init mem banking
   (setq eboy-rom-bank-nr 1)
