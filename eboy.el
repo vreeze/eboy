@@ -763,29 +763,33 @@ Little Endian."
   (if eboy-delay-enabling-interrupt-p
       (setq eboy-delay-enabling-interrupt-p nil)
     (let ((enbl-intr (logand eboy-interrupt-enabled  eboy-interrupt-pending)))
-      (when (and eboy-interrupt-master-enbl (> enbl-intr #x00))
+      (if (and eboy-interrupt-master-enbl (> enbl-intr #x00))
           ;; handle enbl interrupt
           (cond
-           ((= 1 (logand enbl-intr eboy-im-vblank))
+           ((= (logand enbl-intr eboy-im-vblank) eboy-im-vblank)
             ;; V-Blank
             (eboy-disable-interrupt eboy-im-vblank)
             (eboy-process-interrupt #x40))
-           ((= 1 (logand enbl-intr eboy-im-lcdc))
+           ((= (logand enbl-intr eboy-im-lcdc) eboy-im-lcdc)
             ;; LCDC
             (eboy-disable-interrupt eboy-im-lcdc)
             (eboy-process-interrupt #x48))
-           ((= 1 (logand enbl-intr eboy-im-tmr-overflow))
+           ((= (logand enbl-intr eboy-im-tmr-overflow) eboy-im-tmr-overflow)
             ;; Timer Overflow
+            (eboy-log (format "handle timer overflow interrupt"))
             (eboy-disable-interrupt eboy-im-tmr-overflow)
             (eboy-process-interrupt #x50))
-           ((= 1 (logand enbl-intr eboy-im-s-trans-compl))
+           ((= (logand enbl-intr eboy-im-s-trans-compl) eboy-im-s-trans-compl)
             ;; Serial I/O transfer complete
             (eboy-disable-interrupt eboy-im-s-trans-compl)
             (eboy-process-interrupt #x58))
-           ((= 1 (logand enbl-intr eboy-im-h2l-pins))
+           ((= (logand enbl-intr eboy-im-h2l-pins) eboy-im-h2l-pins)
             ;; transition from h to l of pin P10-P13
             (eboy-disable-interrupt eboy-im-h2l-pins)
-            (eboy-process-interrupt #x60)))))))
+            (eboy-process-interrupt #x60)))
+        (when (and eboy-cpu-halted (> enbl-intr #x00) ) ;; IME not enabled, but CPU halted and interrupted
+          (eboy-log (format "un halt cpu"))
+          (setq eboy-cpu-halted nil))))))
 
 (defun eboy-get-rom-cartridge-type ()
   "Retrieve cartridge type."
@@ -863,7 +867,7 @@ Little Endian."
   (setq eboy-lcd-scrollx 0)
   (setq eboy-lcd-scrolly 0)
   (setq eboy-timer-cycles 0)
-  (setq eboy-timer-tac-timer-started 0)
+  (setq eboy-timer-tac-timer-started nil)
   (setq eboy-timer-262144hz-counter-tac 0)
   (setq eboy-timer-262144hz-counter-div 0)
   (setq eboy-timer-tac-input-clock-select 0)
