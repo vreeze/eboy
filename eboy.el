@@ -361,7 +361,7 @@
      ((= address #xFF0F) (setq eboy-interrupt-pending data))
      ((= address #xFF07) ;; Write TAC: Timer Control.
       (setq eboy-timer-tac-timer-started (= (logand data #x04) #x04))
-      (let ((select (logior data #x03)))
+      (let ((select (logand data #x03)))
         (cond
          ((= select 0) (setq eboy-timer-tac-input-clock-select 64))    ;;   4096 Hz
          ((= select 3) (setq eboy-timer-tac-input-clock-select 16))    ;;  16384 Hz
@@ -722,21 +722,23 @@ Little Endian."
   "Update and check timer."
   (let ((delta (- eboy-clock-cycles eboy-timer-cycles)))
     (when (>= delta 16) ;; 262144 Hz
-      (1+ eboy-timer-262144hz-counter-div)
+      (setq eboy-timer-262144hz-counter-div (1+ eboy-timer-262144hz-counter-div))
 
       (when (= eboy-timer-262144hz-counter-div 16) ;; 16384 Hz
         (if (= (aref eboy-io 4) 255)             ;; DIV (FF04) overflowing
             (aset eboy-io 4 0)
           (aset eboy-io 4 (1+ (aref eboy-io 4))))
-       (setq eboy-timer-262144hz-counter-div 0))
+        (setq eboy-timer-262144hz-counter-div 0))
 
-      (when (and eboy-timer-tac-timer-started (= eboy-timer-262144hz-counter-tac eboy-timer-tac-input-clock-select))
-        (if (= (aref eboy-io 5) 255)             ;; TIMA (FF05) overflowing
-            (progn
-              (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-tmr-overflow))
-              (aset eboy-io 5 (aref eboy-io 6))) ;; Load TMA (FF06) into TIMA (FF05)
-          (aset eboy-io 5 (1+ (aref eboy-io 5))))
-        (setq eboy-timer-262144hz-counter-tac 0))
+      (when eboy-timer-tac-timer-started
+        (setq eboy-timer-262144hz-counter-tac (1+ eboy-timer-262144hz-counter-tac))
+        (when (= eboy-timer-262144hz-counter-tac eboy-timer-tac-input-clock-select)
+          (if (= (aref eboy-io 5) 255)             ;; TIMA (FF05) overflowing
+              (progn
+                (setq eboy-interrupt-pending (logior eboy-interrupt-pending eboy-im-tmr-overflow))
+                (aset eboy-io 5 (aref eboy-io 6))) ;; Load TMA (FF06) into TIMA (FF05)
+            (aset eboy-io 5 (1+ (aref eboy-io 5))))
+          (setq eboy-timer-262144hz-counter-tac 0)))
 
       (setq eboy-timer-cycles (+ eboy-timer-cycles 16)))))
 
@@ -788,7 +790,6 @@ Little Endian."
             (eboy-disable-interrupt eboy-im-h2l-pins)
             (eboy-process-interrupt #x60)))
         (when (and eboy-cpu-halted (> enbl-intr #x00) ) ;; IME not enabled, but CPU halted and interrupted
-          (eboy-log (format "un halt cpu"))
           (setq eboy-cpu-halted nil))))))
 
 (defun eboy-get-rom-cartridge-type ()
