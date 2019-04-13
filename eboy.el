@@ -743,7 +743,7 @@ Little Endian."
 (defun eboy-process-opcode (opcode)
   "Process OPCODE."
   (if eboy-cpu-halted
-      (eboy-inc-pc 1)
+      (incf eboy-clock-cycles 4)
     (funcall (aref eboy-cpu opcode))
     (eboy-inc-pc 1)))
 
