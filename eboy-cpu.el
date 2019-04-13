@@ -1386,7 +1386,7 @@
             (eboy-set-flag eboy-flags :C (= b 1)))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x06 RLC (HL) "
-          (let* ((hleboy-mem-read-byteb ( (eboy-get-rHL)))
+          (let* ((hlb (eboy-mem-read-byte (eboy-get-rHL)))
                  (b (lsh hlb -7))
                  (hlbn (logior (lsh hlb 1) b)))
             (eboy-mem-write-byte (eboy-get-rHL) hlbn)
