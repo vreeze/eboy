@@ -1,0 +1,126 @@
+#+TITLE: Eboy performance
+#+DATE: 2026-11-14
+
+Measurements to see what each optimisation actually buys us.  Every change
+gets a new section below the baseline, measured with the same script.
+
+* How to measure
+
+#+begin_src sh
+make bench              # = bench/run.sh, writes bench/results-<commit>.txt
+#+end_src
+
+Don't touch the computer while it runs: the GUI rows are sensitive to it (see
+the variance note under the baseline).
+
+The script copies the sources to a temp dir, compiles them (byte and native)
+and runs [[file:bench/eboy-bench.el][bench/eboy-bench.el]]:
+
+- *cpu-only* :: 3M instructions of the =eboy-run= loop body, display never
+  drawn (batch mode).
+- *render-build* :: 30 calls to =eboy-write-display-unicode= in batch mode, so
+  only building the buffer text, no screen drawing.
+- *render+redisplay* :: the same 30 calls in a GUI frame, including the
+  =(redisplay)= at the end of the function: what one drawn frame really costs.
+- *full skip=N* :: runs exactly like =eboy-run= (CPU, interrupts, LCD, timer,
+  drawing, key reading) in a GUI frame with =eboy-skip-frames= = N, and splits
+  wall time into:
+  - /display/: time inside =eboy-write-display-unicode= (build + redisplay)
+  - /input wait/: rest of =eboy-debug-update-fps=, essentially the
+    =(read-char-exclusive nil nil 0.1)= timeout
+  - /emulation/: everything else (CPU, interrupts, LCD, timer)
+
+  =skip=20= is the default (600 emulated frames = 10 Game Boy seconds),
+  =skip=0= draws every frame (60 frames).
+
+"GB speed" is emulated frames per wall second divided by the real Game Boy's
+59.73 fps; 100% means real time.
+
+Every benchmark runs on two workloads:
+
+- *synthetic* :: a deterministic program: a small loop at =#x100=
+  (=INC A=, =LD (HL),A=, =INC L=, =DEC B=, =BIT 0,A=, =BIT 7,A=, =JR=) with
+  random VRAM tiles and 40 sprites spread diagonally over the screen.
+- *10-bit ops* :: Blargg's =cpu_instrs/10-bit ops.gb= test ROM (downloaded by
+  =make roms=), a real program with a realistic mix of instructions.  It
+  already passes, so fixing CPU bugs won't change what it does, and it runs
+  ~14 emulated seconds, longer than the 10 s the full benchmark needs.  For
+  the render rows it first runs 300 frames, so there is text on screen.
+
+GUI frame: 1317x904 px, =*eboy-display*= at =text-scale -8= as
+=eboy-load-rom= sets it.
+
+* Baseline: fe04bd5 (before any optimisation)
+
+Emacs 31.1 (emacs-plus, native-comp), Apple M1, 2026-11-14.
+Run-to-run variance: CPU-only and byte-compiled results agree within ~1%
+over three runs.  The GUI redisplay numbers moved by up to ~10% (a third run
+gave native render+redisplay 88.6 ms/frame and skip=20 at 114% speed), so only
+treat differences above ~10% in the GUI rows as real.  One later run had the
+byte-compiled ROM GUI rows 3x slower (355 ms/frame) while every other row
+was normal; the next run was back to normal, so it was outside interference
+with the GUI window.  If one row looks way off, re-run.
+
+** Core and renderer
+
+| Benchmark        | Byte-compiled  | Native-compiled |
+|------------------+----------------+-----------------|
+| cpu-only         | 1.22M instr/s  | 1.82M instr/s   |
+|                  | 200% GB speed  | 298% GB speed   |
+| render-build     | 45.9 ms/frame  | 21.5 ms/frame   |
+| render+redisplay | 107.8 ms/frame | 98.5 ms/frame   |
+
+So drawing a frame costs about 100 ms, and more than half of that is Emacs
+redisplaying the 320x144 characters, which compiling doesn't help with.
+
+For reference, loading the files with =M-x eval-buffer= (not compiled, as the
+README allows) gave only 0.20M instr/s (33% GB speed) in an earlier quick run
+of the same loop.  The script doesn't measure that mode.
+
+** Full emulation, as a player would see it
+
+| Run                 | Mode   | Wall time | GB speed | Drawn fps | Display | Input wait | Emulation |
+|---------------------+--------+-----------+----------+-----------+---------+------------+-----------|
+| skip=20 (default)   | byte   | 10.87 s   | 92.4%    | 2.58      | 28%     | 26%        | 46%       |
+| skip=20 (default)   | native | 9.51 s    | 105.6%   | 2.94      | 27%     | 31%        | 43%       |
+| skip=0 (every frame)| byte   | 13.16 s   | 7.6%     | 4.56      | 50%     | 46%        | 4%        |
+| skip=0 (every frame)| native | 12.29 s   | 8.2%     | 4.88      | 45%     | 51%        | 4%        |
+
+** With a real ROM: Blargg's "10-bit ops"
+
+Same commit and machine, from the third run, which also produced
+[[file:bench/results-fe04bd5.txt][bench/results-fe04bd5.txt]] (the synthetic rows in that run agree with the
+tables above).
+
+| Benchmark        | Byte-compiled  | Native-compiled |
+|------------------+----------------+-----------------|
+| cpu-only         | 0.94M instr/s  | 1.79M instr/s   |
+|                  | 197% GB speed  | 375% GB speed   |
+| render-build     | 38.9 ms/frame  | 17.5 ms/frame   |
+| render+redisplay | 120.1 ms/frame | 97.9 ms/frame   |
+
+| Run                 | Mode   | Wall time | GB speed | Drawn fps | Display | Input wait | Emulation |
+|---------------------+--------+-----------+----------+-----------+---------+------------+-----------|
+| skip=20 (default)   | byte   | 11.29 s   | 89.0%    | 2.48      | 27%     | 25%        | 48%       |
+| skip=20 (default)   | native | 7.98 s    | 125.9%   | 3.51      | 29%     | 37%        | 35%       |
+| skip=0 (every frame)| byte   | 13.08 s   | 7.7%     | 4.59      | 49%     | 46%        | 4%        |
+| skip=0 (every frame)| native | 11.81 s   | 8.5%     | 5.08      | 44%     | 53%        | 3%        |
+
+The real ROM runs fewer instructions per second (they take more cycles on
+average), but about the same emulated speed as the synthetic loop when
+byte-compiled.  Native compilation helps it more (1.9x on the CPU core
+vs 1.4x), and the overall picture is the same: drawing and the input wait
+take more than half the time.
+
+** Takeaways
+
+- Once compiled, emulation is less than half of the wall time.  The rest is
+  drawing (~100 ms per drawn frame) and the 0.1 s key-read timeout, which
+  waits the full 100 ms on every drawn frame when no key is pressed.
+- With default frame skipping the game runs at about real speed but only
+  shows ~2.6 frames per second.  Drawing every frame gives under 5 fps.
+- Native compilation helps the CPU core (~1.5x) and building the frame text
+  (~2x), but barely changes redisplay or the wait, so it's only about 10%
+  faster overall.
+- The first targets are clear: the input wait (~30–50%), then redisplay and
+  building the frame text.

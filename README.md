@@ -28,7 +28,15 @@ Emacs :)
 
 ## Installing
 
-For now just `M-x eval-buffer` or `M-x byte-compile-file` the following files: `eboy-macros.el`, `eboy-cpu.el` and `eboy.el`.
+Emacs 29 or newer can install it straight from GitHub:
+
+``` emacs-lisp
+(package-vc-install "https://github.com/vreeze/eboy")
+```
+
+This byte-compiles it, and if your Emacs has native compilation it is
+native-compiled in the background as well. That matters a lot here: run
+uncompiled, eboy is about 5 times slower.
 
 ## Usage
 
@@ -49,19 +57,45 @@ To continue a game after you pressed `C-g`, use the `M-x eboy-run` command.
 
 Eboy related messages are written to the buffer `*Eboy Messages*`.
 
-## Blargg's test roms status
-1. special: Seems to hang, without giving an error
-2. interrupts: Passed
-3. op hl,sp: F8 F8 Failed
-4. op r,imm: C6 DE Failed
-5. op rp: Passed
-6. ld r,r: Passed
-7. jr,jp,call,ret,rst: Seems to hang, without giving an error
-8. misc instrs: Passed
-9. op r,r: List of failing opcodes
-  3F, 07, 17, 0F, CB 00, CB 01, CB 02, CB 03, CB 05, CB 07, Cb 08, CB 09, CB 0A, CB 0B, CB 0C, CB 0D, CB 0F, CB 10, CB 11, CB 12, CB 13, CB 14, CB 15, CB 17, CB 20, CB 21, CB 22, CB 23, CB 24, CB 25, CB 27,
-10. bit ops: Passed
-11. op a,(hl):  List of failing opcodes
- CB 0E,CB 2E,CB 3E,CB 46,CB 4E,CB 56,CB 5E,CB 66,CB 6E,CB 76,CB 7E,CB 86,CB 8E,CB 96,CB 9E,CB A6,CB AE,CB B6,CB BE,CB C6,CB CE,CB D6,CB DE,CB E6,CB EE,CB F6,CB FE
+## Development
 
-The test roms are hosted at: https://github.com/retrio/gb-test-roms
+From a checkout, `make help` lists the tasks:
+
+``` sh
+make                          # byte- and native-compile
+make run                      # start eboy in a clean Emacs (emacs -Q), pick a rom
+make run ROM=path/to/game.gb  # ... or start a rom directly
+make test                     # run Blargg's cpu_instrs test roms headless
+make test-visual              # ... the same, one after another on screen
+make bench                    # performance benchmarks, see performance.org
+```
+
+`make test` takes about 40 seconds and `make test-visual` about 4 minutes
+(Apple M1). About half of that is the two tests that hang until the
+40-emulated-second timeout; set `EBOY_BLARGG_TIMEOUT` (in emulated seconds)
+to change it.
+
+To watch a single Blargg test on screen instead, run its rom with `make run`,
+for example `make run ROM="roms/blargg/cpu_instrs/06-ld r,r.gb"`. The result
+("Passed" or "Failed" with the failing opcodes) appears as text in the display.
+
+`make test` and `make bench` download Blargg's test roms into `roms/` the
+first time (`make roms`); they are not part of the repository.
+
+## Blargg's test roms status
+
+Output of `make test` (cpu_instrs):
+
+| Test                    | Result                                       |
+|-------------------------|----------------------------------------------|
+| 01-special              | Hangs, without giving an error               |
+| 02-interrupts           | Passed                                       |
+| 03-op sp,hl             | Failed: F8 F8                                |
+| 04-op r,imm             | Failed: C6 DE                                |
+| 05-op rp                | Passed                                       |
+| 06-ld r,r               | Passed                                       |
+| 07-jr,jp,call,ret,rst   | Hangs, without giving an error               |
+| 08-misc instrs          | Passed                                       |
+| 09-op r,r               | Failed: rotate instructions (07 17 0F, CB 00-27) |
+| 10-bit ops              | Passed                                       |
+| 11-op a,(hl)            | Failed: CB ops on (HL), 27 (DAA)             |

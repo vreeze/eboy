@@ -834,6 +834,22 @@ Little Endian."
   (eboy-log (format "Rom title: %s" (eboy-rom-title)))
   (eboy-get-rom-cartridge-type))
 
+(defun eboy-fit-frame-to-display ()
+  "Grow the selected frame so the whole Game Boy screen fits in its window.
+The display is 320 characters by 144 lines in the (scaled) default font.
+Only grows, never shrinks, stays within the monitor, and leaves frames with
+several windows alone."
+  (when (and (display-graphic-p) (one-window-p t))
+    (let* ((win (selected-window))
+           (grow-w (- (* 321 (window-font-width win)) (window-body-width win t)))
+           (grow-h (- (* 145 (window-font-height win)) (window-body-height win t)))
+           (area (frame-monitor-workarea)))
+      (when (or (> grow-w 0) (> grow-h 0))
+        (set-frame-size (selected-frame)
+                        (min (+ (frame-text-width) (max grow-w 0)) (nth 2 area))
+                        (min (+ (frame-text-height) (max grow-h 0)) (nth 3 area))
+                        t)))))
+
 (defun eboy-kill-message-buf ()
   "Kill the message buffer of the previous rom."
   (let ((b (get-buffer eboy-message-buffer)))
@@ -887,6 +903,7 @@ Little Endian."
 
   (switch-to-buffer "*eboy-display*")
   (text-scale-set -8) ; only when using unicode display function
+  (eboy-fit-frame-to-display)
   (erase-buffer)
 
   (let ((flags (make-bool-vector 4 nil)))

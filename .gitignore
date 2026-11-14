@@ -1,0 +1,4 @@
+*.elc
+native-stamp
+# Test ROMs are downloaded with `make roms`, not committed
+roms/
