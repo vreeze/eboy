@@ -125,6 +125,7 @@ take more than half the time.
 - The first targets are clear: the input wait (~30–50%), then redisplay and
   building the frame text.
 
+
 * New baseline: after the CPU bug fixes (all Blargg cpu_instrs tests pass)
 
 This is the baseline the optimisations are measured against from here on.
@@ -149,3 +150,44 @@ within noise of the first baseline.  Raw output:
 
 Synthetic workload: cpu-only 199% (byte) / 296% (native); skip=20 92.0% /
 114.5%; skip=0 4.51 / 5.04 drawn fps.
+
+* Frame pacing instead of the 0.1 s key wait
+
+=eboy-debug-update-fps= no longer waits up to 0.1 s for a key after every
+drawn frame.  New =eboy-pace-and-read-keys=: it only waits when the
+emulator runs ahead of a real Game Boy, for exactly that long, and that wait
+still returns at once on a key press; otherwise it just checks for a key.
+=eboy-limit-speed= (default =t=) turns the speed limit on or off.
+
+Keys work as before (checked by feeding =s= and =k= into a running ROM: the
+joypad registers changed to A and down), and a press lasts until the next
+drawn frame, as before.  Blargg: all tests still pass.
+
+The benchmark now turns the speed limit off for the =full= rows, to measure
+how fast it can go, and adds a =paced= row as a player runs it.  Raw output:
+[[file:bench/results-frame-pacing.txt][bench/results-frame-pacing.txt]] (CPU-only and render rows unchanged, as
+expected).  Measured on top of the bug fixes; a first measurement on top of
+fe04bd5 gave the same picture.
+
+Blargg "10-bit ops" ROM, compared with the new baseline (after the bug fixes):
+
+| Run                   | Mode   | Baseline GB speed | Now GB speed | Baseline drawn fps | Now drawn fps |
+|-----------------------+--------+-------------------+--------------+--------------------+---------------|
+| skip=20 (default)     | byte   | 91.5%             | 123.2%       | 2.55               | 3.43          |
+| skip=20 (default)     | native | 124.8%            | 158.7%       | 3.48               | 4.42          |
+| skip=0 (every frame)  | byte   | 7.7%              | 14.7%        | 4.59               | 8.79          |
+| skip=0 (every frame)  | native | 8.4%              | 15.7%        | 5.05               | 9.35          |
+| skip=20, speed limit  | byte   | -                 | 101.7%       | -                  | 2.83          |
+| skip=20, speed limit  | native | -                 | 98.6%        | -                  | 2.75          |
+
+(The synthetic workload shows the same picture: skip=20 native 114.5% ->
+152.0%, skip=0 native 5.04 -> 9.62 fps.)
+
+- Drawing every frame is now about *1.9x faster* (byte and native), because
+  the wait was nearly half of the time there.
+- With default settings it is 27–35% faster.  With the speed limit on it
+  holds real-time speed (99–102%) and is idle 18% (byte) to 27–33% (native)
+  of the time: room that could go into drawing more frames.
+- What's left: drawing is now 91–93% of the time when drawing every frame, so
+  the renderer and redisplay are the next target for frame rate; the
+  emulation itself (~60% with default settings) is the next target for speed.

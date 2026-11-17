@@ -1,0 +1,27 @@
+# eboy 2955231-dirty, 31.1, Apple M1
+| cpu-only | byte, synthetic | 3000000 instr | 2.49 s | 1204259 instr/s | 197% |
+| render-build | byte, synthetic | 30 frames | 1.39 s | 46.4 ms/frame | |
+| cpu-only | byte, 10-bit ops | 3000000 instr | 3.22 s | 932416 instr/s | 192% |
+| render-build | byte, 10-bit ops | 30 frames | 1.17 s | 39.1 ms/frame | |
+| frame | byte | 1317x904 px | | | |
+| render+redisplay | byte, synthetic | 30 frames | 3.26 s | 108.8 ms/frame | |
+| full skip=20 | byte, synthetic | 600 frames | 8.06 s | 124.6% GB speed, 3.47 displayed fps | display 38% (109 ms/frame), input wait 0%, emulation 62% |
+| full skip=0 | byte, synthetic | 60 frames | 7.14 s | 14.1% GB speed, 8.40 displayed fps | display 92% (110 ms/frame), input wait 1%, emulation 7% |
+| full skip=20 paced | byte, synthetic | 600 frames | 9.90 s | 101.5% GB speed, 2.83 displayed fps | display 31% (109 ms/frame), input wait 19%, emulation 51% |
+| render+redisplay | byte, 10-bit ops | 30 frames | 3.56 s | 118.6 ms/frame | |
+| full skip=20 | byte, 10-bit ops | 600 frames | 8.15 s | 123.2% GB speed, 3.43 displayed fps | display 35% (103 ms/frame), input wait 0%, emulation 64% |
+| full skip=0 | byte, 10-bit ops | 60 frames | 6.82 s | 14.7% GB speed, 8.79 displayed fps | display 91% (104 ms/frame), input wait 1%, emulation 8% |
+| full skip=20 paced | byte, 10-bit ops | 600 frames | 9.88 s | 101.7% GB speed, 2.83 displayed fps | display 29% (102 ms/frame), input wait 18%, emulation 53% |
+| cpu-only | native, synthetic | 3000000 instr | 1.64 s | 1831403 instr/s | 299% |
+| render-build | native, synthetic | 30 frames | 0.65 s | 21.5 ms/frame | |
+| cpu-only | native, 10-bit ops | 3000000 instr | 1.67 s | 1795044 instr/s | 369% |
+| render-build | native, 10-bit ops | 30 frames | 0.52 s | 17.5 ms/frame | |
+| frame | native | 1317x904 px | | | |
+| render+redisplay | native, synthetic | 30 frames | 4.40 s | 146.6 ms/frame | |
+| full skip=20 | native, synthetic | 600 frames | 6.61 s | 152.0% GB speed, 4.24 displayed fps | display 39% (91 ms/frame), input wait 0%, emulation 61% |
+| full skip=0 | native, synthetic | 60 frames | 6.24 s | 16.1% GB speed, 9.62 displayed fps | display 93% (97 ms/frame), input wait 0%, emulation 7% |
+| full skip=20 paced | native, synthetic | 600 frames | 9.79 s | 102.6% GB speed, 2.86 displayed fps | display 25% (89 ms/frame), input wait 33%, emulation 42% |
+| render+redisplay | native, 10-bit ops | 30 frames | 3.13 s | 104.4 ms/frame | |
+| full skip=20 | native, 10-bit ops | 600 frames | 6.33 s | 158.7% GB speed, 4.42 displayed fps | display 41% (93 ms/frame), input wait 1%, emulation 58% |
+| full skip=0 | native, 10-bit ops | 60 frames | 6.42 s | 15.7% GB speed, 9.35 displayed fps | display 93% (99 ms/frame), input wait 1%, emulation 6% |
+| full skip=20 paced | native, 10-bit ops | 600 frames | 10.19 s | 98.6% GB speed, 2.75 displayed fps | display 30% (109 ms/frame), input wait 27%, emulation 43% |

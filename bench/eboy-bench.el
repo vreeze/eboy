@@ -16,6 +16,9 @@
 (require 'eboy)
 (require 'eboy-headless)
 
+(defvar eboy-limit-speed)   ; declared special, so this file also runs on
+(defvar eboy-pace-start)    ; older commits that don't have frame pacing
+
 (defvar eboy-bench-rom nil
   "ROM file for the current workload, or nil for the synthetic one.")
 
@@ -78,7 +81,7 @@
           eboy-cpu-halted nil eboy-interrupt-master-enbl nil
           eboy-interrupt-pending 0 eboy-display-write-done nil
           eboy-debug-nr-of-frames 0 eboy-debug-nr-of-displayed-frames 0
-          eboy-debug-fps-timestamp (float-time)
+          eboy-debug-fps-timestamp (float-time) eboy-pace-start nil
           eboy-flags (make-bool-vector 4 nil))
     (eboy-init-registers)
     (eboy-init-memory)              ; LCDC #x91: LCD on, tile data #x8000
@@ -127,11 +130,15 @@ In batch this is only building the buffer; in a GUI it includes redisplay."
                          (if noninteractive "render-build" "render+redisplay")
                          mode n dt (* 1000 (/ dt n)))))))
 
-(defun eboy-bench-full (mode frames skip)
+(defun eboy-bench-full (mode frames skip &optional paced)
   "Run like `eboy-run' for FRAMES emulated frames with `eboy-skip-frames' SKIP.
-Labelled MODE.  Breaks wall time down into display, input wait and the rest."
+Labelled MODE.  Breaks wall time down into display, input wait and the rest.
+Unless PACED, the speed limit (`eboy-limit-speed') is off, to measure how fast
+it can go; then \"input wait\" is only the time spent reading keys."
   (eboy-bench-setup)
+  (setq eboy-pace-start nil)
   (let* ((eboy-skip-frames skip)
+         (eboy-limit-speed paced)
          (disp-time 0.0) (fps-time 0.0)
          (time-disp (lambda (f &rest args)
                       (let ((t0 (float-time)))
@@ -156,10 +163,10 @@ Labelled MODE.  Breaks wall time down into display, input wait and the rest."
                    (wait (- fps-time disp-time))
                    (cpu (- dt fps-time)))
               (eboy-bench--out
-               (concat "| full skip=%d | %s | %d frames | %.2f s | %.1f%% GB speed, "
+               (concat "| full skip=%d%s | %s | %d frames | %.2f s | %.1f%% GB speed, "
                        "%.2f displayed fps | display %.0f%% (%.0f ms/frame), "
                        "input wait %.0f%%, emulation %.0f%% |")
-               skip mode frames dt
+               skip (if paced " paced" "") mode frames dt
                (* 100 (/ frames dt eboy-bench-gb-fps))
                (/ displayed dt)
                (* 100 (/ disp-time dt)) (* 1000 (/ disp-time (max displayed 1)))
@@ -191,7 +198,8 @@ Labelled MODE.  Breaks wall time down into display, input wait and the rest."
            (eboy-bench-each-workload mode
              (eboy-bench-render mode)
              (eboy-bench-full mode 600 20)  ; default settings, 10 emulated seconds
-             (eboy-bench-full mode 60 0)))  ; draw every frame
+             (eboy-bench-full mode 60 0)    ; draw every frame
+             (eboy-bench-full mode 600 20 t))) ; with the speed limit, as a player runs it
        (kill-emacs 0)))))
 
 (provide 'eboy-bench)

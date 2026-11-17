@@ -715,14 +715,38 @@ Little Endian."
      ((= key 106) (setq eboy-joypad-direction-keys #xD))
      ((= key 108) (setq eboy-joypad-direction-keys #xE)))))
 
+(defcustom eboy-limit-speed t
+  "When non-nil, don't run faster than a real Game Boy."
+  :type 'boolean
+  :group 'eboy)
+
+(defconst eboy-frames-per-second (/ 4194304.0 70224) "Frames per second of a real Game Boy.")
+(defvar eboy-pace-start nil "Wall time at which frame counting for pacing started.")
+(defvar eboy-pace-frames 0 "Emulated frames since `eboy-pace-start'.")
+
+(defun eboy-pace-and-read-keys ()
+  "Read a key press, waiting first if we run ahead of a real Game Boy.
+Without waiting to do, this only checks for a key and returns right away.
+While waiting, a key press is still picked up immediately."
+  (let* ((now (float-time))
+         (ahead (and eboy-limit-speed eboy-pace-start
+                     (- (+ eboy-pace-start (/ eboy-pace-frames eboy-frames-per-second))
+                        now))))
+    ;; Start counting, or start over when we fell behind (slow machine, or the
+    ;; emulator was stopped with C-g), instead of rushing to catch up.
+    (when (or (null eboy-pace-start) (and ahead (< ahead -0.25)))
+      (setq eboy-pace-start now eboy-pace-frames 0 ahead nil))
+    (eboy-read-keys (read-char-exclusive nil nil (if (and ahead (> ahead 0)) ahead 0)))))
+
 (defun eboy-debug-update-fps ()
   "Update the Frames Per Second counter."
   (incf eboy-debug-nr-of-frames)
+  (incf eboy-pace-frames)
   (when (> eboy-debug-nr-of-frames eboy-skip-frames)
     (setq eboy-debug-nr-of-frames 0)
     (incf eboy-debug-nr-of-displayed-frames)
     (eboy-write-display-unicode)
-    (eboy-read-keys (read-char-exclusive nil nil 0.1)))
+    (eboy-pace-and-read-keys))
   (when (> (time-to-seconds (current-time)) (+ eboy-debug-fps-timestamp eboy-debug-show-fps-after-sec))
     (setq eboy-debug-fps-timestamp (time-to-seconds (current-time)))
     (message "FPS: %.2f" (/ eboy-debug-nr-of-displayed-frames eboy-debug-show-fps-after-sec))
@@ -909,6 +933,7 @@ several windows alone."
   (setq eboy-mbc1-bank-high 0)
 
   (setq eboy-cpu-halted nil)
+  (setq eboy-pace-start nil)
 
   (eboy-log (format "Load rom: %s" eboy-rom-filename))
   (eboy-log (format "Rom size: %d bytes" eboy-rom-size))

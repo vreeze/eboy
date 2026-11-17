@@ -47,7 +47,7 @@
         eboy-interrupt-pending 0 eboy-delay-enabling-interrupt-p nil
         eboy-display-write-done nil
         eboy-debug-nr-of-frames 0 eboy-debug-nr-of-displayed-frames 0
-        eboy-debug-fps-timestamp (float-time))
+        eboy-debug-fps-timestamp (float-time) eboy-pace-start nil)
   (eboy-init-registers)
   (eboy-init-memory)
   (let ((flags (make-bool-vector 4 nil)))   ; flags #xB0, as `eboy-load-rom'
