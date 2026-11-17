@@ -9,8 +9,15 @@ Just got Tetris starting up, not tested with anything else.
 It currently runs a constant loop without delay.
 To get out of this loop, use the common `C-g` command.
 
-The display is drawn using unicode, by default it is set for dark theme.
-Use the unicode list below when you have a light theme installed in Emacs.
+In a graphical Emacs the screen is drawn as an image, in a terminal as
+unicode block characters. Set `eboy-display-type` to `image` or `text` to
+choose yourself (default `auto`); `eboy-display-scale` sets the image size
+(default 4, so 640x576 pixels) and `eboy-display-palette` its colours.
+
+The text display needs a window of at least 321 by 145 characters. In a
+graphical Emacs eboy shrinks the font for that, in a terminal you need a
+large terminal window with a small font. By default the characters are set
+for a dark theme; use the unicode list below when you have a light theme.
 
 ``` emacs-lisp
 (setq eboy-display-unicode-list eboy-display-unicode-list-light-theme)

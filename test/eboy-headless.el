@@ -87,13 +87,10 @@
 
 (defun eboy-blargg--show-display (file)
   "Prepare the *eboy-display* buffer to watch test FILE."
-  (switch-to-buffer (get-buffer-create "*eboy-display*"))
+  (eboy-display-prepare-buffer)
   (setq header-line-format
         (format " Blargg %s: %s   (C-g stops)" eboy-blargg--progress
-                (file-name-base file)))
-  (text-scale-set -8)                   ; as `eboy-load-rom' does
-  (eboy-fit-frame-to-display)
-  (erase-buffer))
+                (file-name-base file))))
 
 (defun eboy-blargg-run-rom (file &optional visual)
   "Run Blargg test ROM FILE until it reports, hangs or crashes.
@@ -123,7 +120,7 @@ Return a plist (:name :result :emulated :wall :output)."
           (error (setq result (format "ERROR %S" err))))
       (advice-remove 'eboy-mem-write-byte #'eboy-headless--serial-advice))
     (when visual                        ; show the final screen with the result
-      (eboy-write-display-unicode)
+      (eboy-display-frame)
       (setq header-line-format
             (format " Blargg %s: %s   %s" eboy-blargg--progress
                     (file-name-base file) result))

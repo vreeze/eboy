@@ -622,56 +622,120 @@ Little Endian."
   ;;(switch-to-buffer "*eboy*")
   )
 
-(defun eboy-write-display-unicode ()
-  "Write the display as unicode characters."
-  ;;(with-current-buffer "*eboy-display*")
-  (erase-buffer)
-  (let ((line nil)
-        (c))
+(defcustom eboy-display-type 'auto
+  "How to draw the Game Boy screen.
+`image': as an image, much faster, but needs a graphical frame.
+`text': as block characters, also works in a terminal.
+`auto': an image when the frame can show one, otherwise text."
+  :type '(choice (const auto) (const image) (const text))
+  :group 'eboy)
+
+(defcustom eboy-display-scale 4
+  "Screen pixels per Game Boy pixel, for the image display."
+  :type 'integer
+  :group 'eboy)
+
+(defcustom eboy-display-palette '("#9bbc0f" "#8bac0f" "#306230" "#0f380f")
+  "The four colours of the image display, lightest first."
+  :type '(list color color color color)
+  :group 'eboy)
+
+(defvar eboy-display-pixels (make-vector (* 160 144) 0)
+  "Colour numbers (0-3) of the current screen, row by row.")
+
+(defvar eboy-display--image nil "The image shown last, to flush from the image cache.")
+
+(defun eboy-display-image-p ()
+  "Non-nil when the screen is drawn as an image, see `eboy-display-type'."
+  (pcase eboy-display-type
+    ('image t)
+    ('text nil)
+    (_ (and (display-images-p) (image-type-available-p 'pbm)))))
+
+(defun eboy-display-compute-pixels ()
+  "Fill `eboy-display-pixels' with the background and sprites of the screen."
+  (let ((v eboy-display-pixels))
     (dotimes (y 144)
-      (setq line nil)
-      (dotimes (x 160)
-        (setq c (nth (eboy-get-color-xy (mod (+ x eboy-lcd-scrollx) 256) (mod (+ y eboy-lcd-scrolly) 256)) eboy-display-unicode-list))
-        (setq line (cons c line))
-        (setq line (cons c line))) ;; draw x twice, to get a more square sized display.
-      (setq line (nreverse line))
-      ;; insert the sprites
-      (let ((sprites (eboy-display-sprites y))
-            (xs)
-            (ys)
-            (xs_end)
-            (nr)
-            (tile-addr))
-        (when (not (null sprites))
-          ;;(message "%s" sprites)
-          ;; Draw sprites
-          ;; TODO: Check if off screen
-          ;; TODO: Check if sprite is flipped
-          (dolist (sprite sprites)
-            ;;(message "y:%d %s %s" y sprite  eboy-lcdc-obj-size)
-            (setq xs (nth 1 sprite)) ; x coordinate of the sprite
-            (setq xs_end (+ xs 8))
-            (setq nr (nth 2 sprite)) ;; sprite number
-            (setq ys (- y (nth 0 sprite))) ; y coordinate of the sprite
-            (setq tile-addr (+ #x8000 (* nr 16) (* ys 2)))
-            ;;(nth 3 sprite) ;; flags
-            (while (and (< xs xs_end) (< xs 160))
-              ;;(message "%s" (length line))
-              (let ((color (nth (eboy-get-color (eboy-mem-read-byte tile-addr) (eboy-mem-read-byte (1+ tile-addr)) xs) eboy-display-unicode-list)))
-                (setf (nth (* 2 xs) line) color)
-                (setf (nth (1+ (* 2 xs)) line) color))
-              ;;(message "%s" (length line))
-              (incf xs)
-              ;;(user-error "Stop!")
-              )
-            )
-          ))
-      (insert (concat line "\n"))
-      ))
-;;  (goto-char (point-min))
-  (redisplay)
-;;  (sit-for 0.1)
-  )
+      (let ((row (* y 160)))
+        (dotimes (x 160)
+          (aset v (+ row x)
+                (eboy-get-color-xy (mod (+ x eboy-lcd-scrollx) 256) (mod (+ y eboy-lcd-scrolly) 256))))
+        ;; Sprites, drawn as before: no flipping, priority, palette or
+        ;; transparency yet.
+        (dolist (sprite (eboy-display-sprites y))
+          (let* ((xs (nth 1 sprite))
+                 (xs-end (+ xs 8))
+                 (tile-addr (+ #x8000 (* (nth 2 sprite) 16) (* (- y (nth 0 sprite)) 2)))
+                 (byte1 (eboy-mem-read-byte tile-addr))
+                 (byte2 (eboy-mem-read-byte (1+ tile-addr))))
+            (while (and (< xs xs-end) (< xs 160))
+              (when (>= xs 0)
+                (aset v (+ row xs) (eboy-get-color byte1 byte2 xs)))
+              (setq xs (1+ xs)))))))))
+
+(defun eboy-display-insert-text ()
+  "Show `eboy-display-pixels' in the current buffer as block characters.
+Every pixel is drawn twice, to get a more square sized display."
+  (let ((chars (vconcat eboy-display-unicode-list))
+        (out (make-vector (* 321 144) ?\n))   ; 320 chars and a newline per line
+        (i 0)
+        (j 0))
+    (dotimes (_ 144)
+      (dotimes (_ 160)
+        (let ((c (aref chars (aref eboy-display-pixels j))))
+          (aset out i c)
+          (aset out (1+ i) c)
+          (setq i (+ i 2) j (1+ j))))
+      (setq i (1+ i)))
+    (erase-buffer)
+    (insert (concat out))))
+
+(defun eboy-display--palette-bytes ()
+  "`eboy-display-palette' as a vector of (R G B) byte lists."
+  (vconcat (mapcar (lambda (c) (mapcar (lambda (v) (ash v -8)) (color-values c)))
+                   eboy-display-palette)))
+
+(defun eboy-display-insert-image ()
+  "Show `eboy-display-pixels' in the current buffer as an image (a PPM)."
+  (let* ((header "P6\n160 144\n255\n")
+         (hl (length header))
+         (ppm (make-string (+ hl (* 3 160 144)) 0))
+         (palette (eboy-display--palette-bytes))
+         (i hl))
+    (dotimes (k hl) (aset ppm k (aref header k)))
+    (dotimes (j (* 160 144))
+      (let ((rgb (aref palette (aref eboy-display-pixels j))))
+        (aset ppm i (car rgb))
+        (aset ppm (+ i 1) (cadr rgb))
+        (aset ppm (+ i 2) (caddr rgb))
+        (setq i (+ i 3))))
+    (let ((image (create-image ppm 'pbm t :scale eboy-display-scale)))
+      (erase-buffer)
+      (insert-image image)
+      ;; Every frame is a new image: drop the previous one from the image
+      ;; cache, or memory keeps growing.
+      (when eboy-display--image (image-flush eboy-display--image))
+      (setq eboy-display--image image))))
+
+(defun eboy-display-frame ()
+  "Draw the current Game Boy screen in the current buffer and show it."
+  (eboy-display-compute-pixels)
+  (if (eboy-display-image-p)
+      (eboy-display-insert-image)
+    (eboy-display-insert-text))
+  (redisplay))
+
+(define-obsolete-function-alias 'eboy-write-display-unicode #'eboy-display-frame "0.0.2")
+
+(defun eboy-display-prepare-buffer ()
+  "Show the *eboy-display* buffer, set up for `eboy-display-type'."
+  (switch-to-buffer (get-buffer-create "*eboy-display*"))
+  (setq cursor-type nil)
+  ;; The text display needs a tiny font to fit 320x144 characters (this has
+  ;; no effect in a terminal); the image display uses the normal font size.
+  (text-scale-set (if (eboy-display-image-p) 0 -8))
+  (eboy-fit-frame-to-display)
+  (erase-buffer))
 
 
 
@@ -748,7 +812,7 @@ While waiting, a key press is still picked up immediately."
   (when (> eboy-debug-nr-of-frames eboy-skip-frames)
     (setq eboy-debug-nr-of-frames 0)
     (incf eboy-debug-nr-of-displayed-frames)
-    (eboy-write-display-unicode)
+    (eboy-display-frame)
     (eboy-pace-and-read-keys))
   (when (> (time-to-seconds (current-time)) (+ eboy-debug-fps-timestamp eboy-debug-show-fps-after-sec))
     (setq eboy-debug-fps-timestamp (time-to-seconds (current-time)))
@@ -873,13 +937,18 @@ While waiting, a key press is still picked up immediately."
 
 (defun eboy-fit-frame-to-display ()
   "Grow the selected frame so the whole Game Boy screen fits in its window.
-The display is 320 characters by 144 lines in the (scaled) default font.
+The display is an image of 160x144 pixels times `eboy-display-scale', or 320
+characters by 144 lines in the (scaled) default font.
 Only grows, never shrinks, stays within the monitor, and leaves frames with
 several windows alone."
   (when (and (display-graphic-p) (one-window-p t))
     (let* ((win (selected-window))
-           (grow-w (- (* 321 (window-font-width win)) (window-body-width win t)))
-           (grow-h (- (* 145 (window-font-height win)) (window-body-height win t)))
+           (image (eboy-display-image-p))
+           (need-w (if image (* 160 eboy-display-scale) (* 321 (window-font-width win))))
+           (need-h (if image (+ (* 144 eboy-display-scale) (window-font-height win))
+                     (* 145 (window-font-height win))))
+           (grow-w (- need-w (window-body-width win t)))
+           (grow-h (- need-h (window-body-height win t)))
            (area (frame-monitor-workarea)))
       (when (or (> grow-w 0) (> grow-h 0))
         (set-frame-size (selected-frame)
@@ -942,10 +1011,7 @@ several windows alone."
   (eboy-log (format "Rom size: %d bytes" eboy-rom-size))
   (eboy-read-cartridge-header)
 
-  (switch-to-buffer "*eboy-display*")
-  (text-scale-set -8) ; only when using unicode display function
-  (eboy-fit-frame-to-display)
-  (erase-buffer)
+  (eboy-display-prepare-buffer)
 
   (let ((flags (make-bool-vector 4 nil)))
      ;; init flags 0xB0

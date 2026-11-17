@@ -4,7 +4,7 @@ SRCS   = eboy-macros.el eboy-cpu.el eboy.el
 TEST   = test/eboy-headless.el test/eboy-mbc-test.el
 BATCH  = LANG=en_US.UTF-8 $(EMACS) -Q --batch -L . -L test
 
-.PHONY: all help run test test-visual bench roms clean
+.PHONY: all help run test test-visual bench bench-redraw roms clean
 
 all: $(SRCS:.el=.elc) $(TEST:.el=.elc) native-stamp  ## Byte- and native-compile
 
@@ -35,6 +35,9 @@ test-visual: all roms/blargg/cpu_instrs  ## Run the same tests in a GUI Emacs, w
 
 bench: roms/blargg/cpu_instrs  ## Run the benchmarks (opens a GUI Emacs twice)
 	@bench/run.sh
+
+bench-redraw: roms/blargg/cpu_instrs  ## Redraw experiment: ways to show a frame (GUI)
+	@bench/redraw.sh
 
 roms: roms/blargg/cpu_instrs  ## Download Blargg's test ROMs (not committed)
 

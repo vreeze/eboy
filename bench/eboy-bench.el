@@ -18,6 +18,31 @@
 
 (defvar eboy-limit-speed)   ; declared special, so this file also runs on
 (defvar eboy-pace-start)    ; older commits that don't have frame pacing
+(defvar eboy-display-type)  ; or the image display
+
+(defun eboy-bench--display-fn ()
+  "The function that draws a frame in the eboy version being measured."
+  (if (fboundp 'eboy-display-frame) 'eboy-display-frame 'eboy-write-display-unicode))
+
+(defun eboy-bench--display-types ()
+  "Display types to measure: text and image, or just the old text display.
+In batch there is no window system, so no images either."
+  (cond ((not (fboundp 'eboy-display-frame)) '(nil))
+        (noninteractive '(text))
+        (t '(text image))))
+
+(defmacro eboy-bench-each-display-type (mode &rest body)
+  "Run BODY for each display type, with MODE extended by its name.
+Shows the display buffer set up for that type first."
+  (declare (indent 1))
+  `(dolist (type (eboy-bench--display-types))
+     (let ((eboy-display-type type)
+           (,mode (if type (format "%s, %s" ,mode type) ,mode)))
+       (if (fboundp 'eboy-display-prepare-buffer)
+           (unless noninteractive (eboy-display-prepare-buffer))
+         (switch-to-buffer "*eboy-display*")
+         (text-scale-set -8))
+       ,@body)))
 
 (defvar eboy-bench-rom nil
   "ROM file for the current workload, or nil for the synthetic one.")
@@ -113,7 +138,7 @@
                          mode n dt (/ n dt) (* 100 speed))))))
 
 (defun eboy-bench-render (mode &optional n)
-  "Call `eboy-write-display-unicode' N times, labelled MODE.
+  "Draw a frame N times, labelled MODE.
 In batch this is only building the buffer; in a GUI it includes redisplay."
   (setq n (or n 30))
   (eboy-bench-setup)
@@ -124,7 +149,7 @@ In batch this is only building the buffer; in a GUI it includes redisplay."
   (with-current-buffer (get-buffer-create "*eboy-display*")
     (garbage-collect)
     (let ((t0 (float-time)))
-      (dotimes (_ n) (eboy-write-display-unicode))
+      (dotimes (_ n) (funcall (eboy-bench--display-fn)))
       (let ((dt (- (float-time) t0)))
         (eboy-bench--out "| %s | %s | %d frames | %.2f s | %.1f ms/frame | |"
                          (if noninteractive "render-build" "render+redisplay")
@@ -150,9 +175,10 @@ it can go; then \"input wait\" is only the time spent reading keys."
                          (cl-incf fps-time (- (float-time) t0))))))
          (displayed 0)
          (count-disp (lambda (&rest _) (cl-incf displayed)))
-         (target (* frames eboy-bench-cycles-per-frame)))
-    (advice-add 'eboy-write-display-unicode :around time-disp)
-    (advice-add 'eboy-write-display-unicode :before count-disp)
+         (target (* frames eboy-bench-cycles-per-frame))
+         (display-fn (eboy-bench--display-fn)))
+    (advice-add display-fn :around time-disp)
+    (advice-add display-fn :before count-disp)
     (advice-add 'eboy-debug-update-fps :around time-fps)
     (unwind-protect
         (with-current-buffer (get-buffer-create "*eboy-display*")
@@ -171,15 +197,16 @@ it can go; then \"input wait\" is only the time spent reading keys."
                (/ displayed dt)
                (* 100 (/ disp-time dt)) (* 1000 (/ disp-time (max displayed 1)))
                (* 100 (/ wait dt)) (* 100 (/ cpu dt))))))
-      (advice-remove 'eboy-write-display-unicode time-disp)
-      (advice-remove 'eboy-write-display-unicode count-disp)
+      (advice-remove display-fn time-disp)
+      (advice-remove display-fn count-disp)
       (advice-remove 'eboy-debug-update-fps time-fps))))
 
 (defun eboy-bench-batch (mode)
   "Batch-mode benchmarks for MODE."
   (eboy-bench-each-workload mode
     (eboy-bench-cpu mode)
-    (eboy-bench-render mode)))
+    (eboy-bench-each-display-type mode
+      (eboy-bench-render mode))))
 
 (defun eboy-bench-gui (mode)
   "GUI benchmarks for MODE, with real redisplay.  Exits Emacs when done."
@@ -191,15 +218,15 @@ it can go; then \"input wait\" is only the time spent reading keys."
            (set-frame-size (selected-frame) 1280 900 t)
            (switch-to-buffer "*eboy-display*")
            (delete-other-windows)
-           (text-scale-set -8)            ; as `eboy-load-rom' does
            (redisplay t)
            (eboy-bench--out "| frame | %s | %dx%d px | | | |"
                             mode (frame-pixel-width) (frame-pixel-height))
            (eboy-bench-each-workload mode
-             (eboy-bench-render mode)
-             (eboy-bench-full mode 600 20)  ; default settings, 10 emulated seconds
-             (eboy-bench-full mode 60 0)    ; draw every frame
-             (eboy-bench-full mode 600 20 t))) ; with the speed limit, as a player runs it
+             (eboy-bench-each-display-type mode
+               (eboy-bench-render mode)
+               (eboy-bench-full mode 600 20)  ; default settings, 10 emulated seconds
+               (eboy-bench-full mode 60 0)    ; draw every frame
+               (eboy-bench-full mode 600 20 t)))) ; with the speed limit, as a player runs it
        (kill-emacs 0)))))
 
 (provide 'eboy-bench)
