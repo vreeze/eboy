@@ -693,27 +693,30 @@ Little Endian."
 
 (defun eboy-read-keys (key)
   "See if the user pressed any KEY."
-  ;; | Start       | Enter    |         13 | 0111 (#x7)          |
-  ;; | Select      | Space    |         32 | 1011 (#xB)          |
-  ;; | B           | D        |        100 | 1101 (#xD)          |
-  ;; | A           | S        |        115 | 1110 (#xE)          |
-  ;; |-------------+----------+------------+---------------------|
-  ;; | down        | k        |        107 | 0111 (#x7)          |
-  ;; | up          | i        |        105 | 1011 (#xB)          |
-  ;; | left        | j        |        106 | 1101 (#xD)          |
-  ;; | right       | l        |        108 | 1110 (#xE)          |
+  ;; Laid out like the Game Boy: D-pad under the left hand (WASD), the
+  ;; buttons under the right hand with B left of A (J, K).
+  ;; | Gameboy | Key   | Register bits (0 = pressed)    |
+  ;; |---------+-------+--------------------------------|
+  ;; | Start   | Enter | buttons    0111 (#x7)          |
+  ;; | Select  | Space | buttons    1011 (#xB)          |
+  ;; | B       | j     | buttons    1101 (#xD)          |
+  ;; | A       | k     | buttons    1110 (#xE)          |
+  ;; | down    | s     | directions 0111 (#x7)          |
+  ;; | up      | w     | directions 1011 (#xB)          |
+  ;; | left    | a     | directions 1101 (#xD)          |
+  ;; | right   | d     | directions 1110 (#xE)          |
   (setq eboy-joypad-button-keys #xF)
   (setq eboy-joypad-direction-keys #xF)
   (unless (null key)
     (cond
-     ((= key 13) (setq eboy-joypad-button-keys #x7))
-     ((= key 32) (setq eboy-joypad-button-keys #xB))
-     ((= key 100) (setq eboy-joypad-button-keys #xD))
-     ((= key 115) (setq eboy-joypad-button-keys #xE))
-     ((= key 107) (setq eboy-joypad-direction-keys #x7))
-     ((= key 105) (setq eboy-joypad-direction-keys #xB))
-     ((= key 106) (setq eboy-joypad-direction-keys #xD))
-     ((= key 108) (setq eboy-joypad-direction-keys #xE)))))
+     ((= key ?\r) (setq eboy-joypad-button-keys #x7))
+     ((= key ?\s) (setq eboy-joypad-button-keys #xB))
+     ((= key ?j) (setq eboy-joypad-button-keys #xD))
+     ((= key ?k) (setq eboy-joypad-button-keys #xE))
+     ((= key ?s) (setq eboy-joypad-direction-keys #x7))
+     ((= key ?w) (setq eboy-joypad-direction-keys #xB))
+     ((= key ?a) (setq eboy-joypad-direction-keys #xD))
+     ((= key ?d) (setq eboy-joypad-direction-keys #xE)))))
 
 (defcustom eboy-limit-speed t
   "When non-nil, don't run faster than a real Game Boy."

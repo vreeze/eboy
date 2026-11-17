@@ -46,12 +46,12 @@ Load a rom using the `M-x eboy-load-rom` command.
   |------------:|---------:|
   | Start       | Enter    |
   | Select      | Space    |
-  | B           | D        |
-  | A           | S        |
-  | down        | k        |
-  | up          | i        |
-  | left        | j        |
-  | right       | l        |
+  | B           | j        |
+  | A           | k        |
+  | up          | w        |
+  | left        | a        |
+  | down        | s        |
+  | right       | d        |
 
 To continue a game after you pressed `C-g`, use the `M-x eboy-run` command.
 
