@@ -1,7 +1,7 @@
 # Eboy development tasks.  Run `make help` for an overview.
 EMACS ?= emacs
 SRCS   = eboy-macros.el eboy-cpu.el eboy.el
-TEST   = test/eboy-headless.el
+TEST   = test/eboy-headless.el test/eboy-mbc-test.el
 BATCH  = LANG=en_US.UTF-8 $(EMACS) -Q --batch -L . -L test
 
 .PHONY: all help run test test-visual bench roms clean
@@ -27,6 +27,7 @@ run: all  ## Start eboy in a fresh Emacs (ROM=path/to/game.gb, or pick one)
 
 test: all roms/blargg/cpu_instrs  ## Run Blargg's cpu_instrs tests headless
 	@$(BATCH) -l eboy-headless -f eboy-blargg-run-batch
+	@$(BATCH) -l eboy-mbc-test -f eboy-mbc-test-run-batch
 
 test-visual: all roms/blargg/cpu_instrs  ## Run the same tests in a GUI Emacs, with display
 	@LANG=en_US.UTF-8 $(EMACS) -Q --chdir "$(CURDIR)" -L . -L test -l eboy-headless \

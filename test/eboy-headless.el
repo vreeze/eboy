@@ -42,8 +42,7 @@
         eboy-timer-tac-input-clock-select 0
         eboy-rom-bank-nr 1 eboy-ram-bank-nr 0 eboy-mem-bank-type nil
         eboy-ram-bank-enable nil
-        ;; Used by the MBC1 code in `eboy-mem-write-byte' but never defvar'd.
-        eboy-rom-banking-mode nil
+        eboy-rom-banking-mode t eboy-mbc1-bank-low 1 eboy-mbc1-bank-high 0
         eboy-cpu-halted nil eboy-interrupt-master-enbl nil
         eboy-interrupt-pending 0 eboy-delay-enabling-interrupt-p nil
         eboy-display-write-done nil

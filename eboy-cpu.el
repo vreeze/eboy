@@ -38,11 +38,11 @@
          (incf eboy-clock-cycles 8))
        (lambda nil "0x07 RLCA -/- "
          (let ((c (lsh eboy-rA -7)))
-           (setq eboy-rA (logior (lsh eboy-rA 1) c))
-           (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
+           (setq eboy-rA (logand (logior (lsh eboy-rA 1) c) #xFF))
+           (eboy-set-flag eboy-flags :Z nil)
            (eboy-set-flag eboy-flags :N nil)
            (eboy-set-flag eboy-flags :H nil)
-           (eboy-set-flag eboy-flags :C c))
+           (eboy-set-flag eboy-flags :C (= c 1)))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x08 LD (nn),SP"
          (eboy-mem-write-short (eboy-get-short) eboy-sp)
@@ -78,12 +78,17 @@
          (let ((c (logand eboy-rA 1)))
            (setq eboy-rA (logand (logior (lsh eboy-rA -1) (lsh c 7)) #xFF))
            (eboy-set-flag eboy-flags :C (= c 1))
-           (eboy-set-flag eboy-flags :Z (= eboy-rA 0))
+           (eboy-set-flag eboy-flags :Z nil)
            (eboy-set-flag eboy-flags :N nil)
            (eboy-set-flag eboy-flags :H nil))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x10 STOP -/- 10 "
-         (setq eboy-cpu-halted t)
+         ;; On a Game Boy Color this switches CPU speed (after writing KEY1).
+         ;; On the original Game Boy it waits for a button press; emulating it
+         ;; as HALT hung forever when interrupts were off.  Treat it as a
+         ;; 2-byte instruction (10 00) that resets DIV, like most emulators.
+         (aset eboy-io 4 0)
+         (eboy-inc-pc 1)
          (incf eboy-clock-cycles 4))
        (lambda nil "0x11 LD DE, $%04x"
          (eboy-set-rDE (eboy-get-short))
@@ -110,8 +115,8 @@
          (incf eboy-clock-cycles 8))
        (lambda nil "0x17 RLA -/- "
          (let ((c (= (lsh eboy-rA -7) 1)))
-           (setq eboy-rA (logior (lsh eboy-rA 1) (if (eboy-get-flag eboy-flags :C) 1 0)))
-           (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
+           (setq eboy-rA (logand (logior (lsh eboy-rA 1) (if (eboy-get-flag eboy-flags :C) 1 0)) #xFF))
+           (eboy-set-flag eboy-flags :Z nil)
            (eboy-set-flag eboy-flags :N nil)
            (eboy-set-flag eboy-flags :H nil)
            (eboy-set-flag eboy-flags :C c))
@@ -185,20 +190,18 @@
          (eboy-inc-pc 1)
          (incf eboy-clock-cycles 8))
        (lambda nil "0x27 DAA -/- "
-         (let ((a eboy-rA))
+         ;; Decimal-adjust A after a BCD add or subtract.  After a subtract (N)
+         ;; C is left as it is; after an add it is set when #x60 was added.
+         (let ((a eboy-rA)
+               (c (eboy-get-flag eboy-flags :C)))
            (if (eboy-get-flag eboy-flags :N)
-               (progn (if (eboy-get-flag eboy-flags :H)
-                          (progn (setq a (+ a -6))
-                                 (setq a (logand a #xFF))))
-                      (if (eboy-get-flag eboy-flags :C)
-                          (setq a (+  a -96))))
-             (progn (if (or (eboy-get-flag eboy-flags :H) (> (logand a #xF) 9))
-                        (setq a (+  a #x06)))
-                    (if (or (eboy-get-flag eboy-flags :C) (> a #x9F))
-                        (setq a (+  a #x60)))))
-           (eboy-set-flag eboy-flags :C (or (>= a #x100) (< a 0)))
-           (eboy-add-byte a 0)
-           (setq eboy-rA a)
+               (progn (when c (setq a (- a #x60)))
+                      (when (eboy-get-flag eboy-flags :H) (setq a (- a #x06))))
+             (when (or c (> a #x99)) (setq a (+ a #x60) c t))
+             (when (or (eboy-get-flag eboy-flags :H) (> (logand a #x0F) 9))
+               (setq a (+ a #x06))))
+           (setq eboy-rA (logand a #xFF))
+           (eboy-set-flag eboy-flags :C c)
            (eboy-set-flag eboy-flags :H nil)
            (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
            (incf eboy-clock-cycles 4)))
@@ -319,7 +322,7 @@
        (lambda nil "0x3F CCF -/- "
          (eboy-set-flag eboy-flags :N nil)
          (eboy-set-flag eboy-flags :H nil)
-         (eboy-set-flag eboy-flags :Z (if (eboy-get-flag eboy-flags :C) nil t))
+         (eboy-set-flag eboy-flags :C (not (eboy-get-flag eboy-flags :C)))
          (incf eboy-clock-cycles 4))
        (lambda nil "0x40 LD B,B"
          (setq eboy-rB eboy-rB)
@@ -1031,13 +1034,13 @@
          (eboy-mem-write-short eboy-sp (eboy-get-rBC))
          (incf eboy-clock-cycles 16))
        (lambda nil "0xC6 ADD A,#"
-         (let ((rAnew (+ eboy-rA (eboy-get-byte))))
-           (eboy-set-flag eboy-flags :Z (zerop rAnew))
+         (let* ((b (eboy-get-byte))
+                (sum (+ eboy-rA b)))
            (eboy-set-flag eboy-flags :N nil)
-           (eboy-set-flag eboy-flags :H (< (logand rAnew 15) (logand eboy-rA 15)))
-           (eboy-set-flag eboy-flags :C (< (logand rAnew 255) (logand eboy-rA 255)))
-           (eboy-add-byte rAnew 0) ; Convert to byte
-           (setq eboy-rA rAnew))
+           (eboy-set-flag eboy-flags :H (>= (+ (logand eboy-rA #xF) (logand b #xF)) #x10))
+           (eboy-set-flag eboy-flags :C (>= sum #x100))
+           (setq eboy-rA (logand sum #xFF))
+           (eboy-set-flag eboy-flags :Z (zerop eboy-rA)))
          (incf eboy-pc 1)
          (incf eboy-clock-cycles 8))
        (lambda nil "0xC7 RST 00H  "
@@ -1138,7 +1141,7 @@
            (eboy-add-byte newVal 0) ; Convert to byte
            (setq eboy-rA newVal))
          (incf eboy-pc 1)
-         (incf eboy-clock-cycles 16))
+         (incf eboy-clock-cycles 8))
        (lambda nil "0xD7 RST 10H  "
          (decf eboy-sp 2)
          (eboy-mem-write-short eboy-sp (+ eboy-pc 1))
@@ -1179,14 +1182,14 @@
          (assert nil t "0xDD Non existant opcode"))
        (lambda nil "0xDE SBC A,#"
          (let ((c (if (eboy-get-flag eboy-flags :C) 1 0))
-               (oldrA eboy-rA))
-           (eboy-add-byte eboy-rA (* -1 (+ (eboy-get-byte) c)))
-           (eboy-set-flag eboy-flags :H (< (logand oldrA #x0F) (logand eboy-rA #x0F)))
-           (eboy-set-flag eboy-flags :C (< (logand oldrA #xFF) (logand eboy-rA #xFF))))
+               (b (eboy-get-byte)))
+           (eboy-set-flag eboy-flags :H (< (- (logand eboy-rA #xF) (logand b #xF) c) 0))
+           (eboy-set-flag eboy-flags :C (< (- eboy-rA b c) 0))
            (eboy-set-flag eboy-flags :N t)
-           (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
+           (setq eboy-rA (logand (- eboy-rA b c) #xFF))
+           (eboy-set-flag eboy-flags :Z (zerop eboy-rA)))
          (incf eboy-pc 1)
-         (incf eboy-clock-cycles))
+         (incf eboy-clock-cycles 8))
        (lambda nil "0xDF RST 18H  "
          (decf eboy-sp 2)
          (eboy-mem-write-short eboy-sp (+ eboy-pc 1))
@@ -1226,12 +1229,13 @@
          (setq eboy-pc (1- #x20))
          (incf eboy-clock-cycles 16))
        (lambda nil "0xE8 ADD SP,#  "
-         (let ((old-sp eboy-sp))
-           (setq eboy-sp (+ eboy-sp (eboy-byte-to-signed (eboy-get-byte))))
+         ;; H and C come from adding the unsigned byte to the low byte of SP.
+         (let ((b (eboy-get-byte)))
            (eboy-set-flag eboy-flags :Z nil)
            (eboy-set-flag eboy-flags :N nil)
-           (eboy-set-flag eboy-flags :H (< (logand eboy-sp #x0F) (logand old-sp #x0F)))
-           (eboy-set-flag eboy-flags :C (< (logand eboy-sp #xFF) (logand old-sp #xFF))))
+           (eboy-set-flag eboy-flags :H (>= (+ (logand eboy-sp #x0F) (logand b #x0F)) #x10))
+           (eboy-set-flag eboy-flags :C (>= (+ (logand eboy-sp #xFF) b) #x100))
+           (setq eboy-sp (logand (+ eboy-sp (eboy-byte-to-signed b)) #xFFFF)))
          (incf eboy-pc 1)
          (incf eboy-clock-cycles 16))
        (lambda nil "0xE9 JP (HL) "
@@ -1296,13 +1300,13 @@
          (setq eboy-pc (1- #x30))
          (incf eboy-clock-cycles 16))
        (lambda nil "0xF8 LDHL SP,n"
+         ;; H and C come from adding the unsigned byte to the low byte of SP.
          (let ((b (eboy-get-byte)))
-           (eboy-set-rHL (+ eboy-sp (eboy-byte-to-signed b)))
-           (eboy-add-byte b eboy-sp)
+           (eboy-set-rHL (logand (+ eboy-sp (eboy-byte-to-signed b)) #xFFFF))
            (eboy-set-flag eboy-flags :Z nil)
            (eboy-set-flag eboy-flags :N nil)
-           (eboy-set-flag eboy-flags :H (< (logand b #xFF) (logand eboy-sp #xFF)))
-           (eboy-set-flag eboy-flags :C (< (logand b #x0F) (logand eboy-sp #x0F))))
+           (eboy-set-flag eboy-flags :H (>= (+ (logand eboy-sp #x0F) (logand b #x0F)) #x10))
+           (eboy-set-flag eboy-flags :C (>= (+ (logand eboy-sp #xFF) b) #x100)))
          (incf eboy-pc)
          (incf eboy-clock-cycles 12))
        (lambda nil "0xF9 LD SP,HL"
@@ -1339,7 +1343,7 @@
       (list
        (lambda nil "0x00 RLC B"
          (let ((b (lsh eboy-rB -7)))
-           (setq eboy-rB (logior (lsh eboy-rB 1) b))
+           (setq eboy-rB (logand (logior (lsh eboy-rB 1) b) #xFF))
            (eboy-set-flag eboy-flags :Z (zerop eboy-rB))
            (eboy-set-flag eboy-flags :N nil)
            (eboy-set-flag eboy-flags :H nil)
@@ -1347,7 +1351,7 @@
           (incf eboy-clock-cycles 8))
         (lambda nil "0x01 RLC C"
           (let ((b (lsh eboy-rC -7)))
-            (setq eboy-rC (logior (lsh eboy-rC 1) b))
+            (setq eboy-rC (logand (logior (lsh eboy-rC 1) b) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rC))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1355,7 +1359,7 @@
           (incf eboy-clock-cycles 8))
         (lambda nil "0x02 RLC D"
           (let ((b (lsh eboy-rD -7)))
-            (setq eboy-rD (logior (lsh eboy-rD 1) b))
+            (setq eboy-rD (logand (logior (lsh eboy-rD 1) b) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rD))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1363,7 +1367,7 @@
           (incf eboy-clock-cycles 8))
         (lambda nil "0x03 RLC E"
           (let ((b (lsh eboy-rE -7)))
-            (setq eboy-rE (logior (lsh eboy-rE 1) b))
+            (setq eboy-rE (logand (logior (lsh eboy-rE 1) b) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rE))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1371,7 +1375,7 @@
           (incf eboy-clock-cycles 8))
         (lambda nil "0x04 RLC H"
           (let ((b (lsh eboy-rH -7)))
-            (setq eboy-rH (logior (lsh eboy-rH 1) b))
+            (setq eboy-rH (logand (logior (lsh eboy-rH 1) b) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rH))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1379,7 +1383,7 @@
           (incf eboy-clock-cycles 8))
         (lambda nil "0x05 RLC L"
           (let ((b (lsh eboy-rL -7)))
-            (setq eboy-rL (logior (lsh eboy-rL 1) b))
+            (setq eboy-rL (logand (logior (lsh eboy-rL 1) b) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rL))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1397,7 +1401,7 @@
           (incf eboy-clock-cycles 16))
         (lambda nil "0x07 RLC A"
           (let ((b (lsh eboy-rA -7)))
-            (setq eboy-rA (logior (lsh eboy-rA 1) b))
+            (setq eboy-rA (logand (logior (lsh eboy-rA 1) b) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1409,7 +1413,7 @@
             (eboy-set-flag eboy-flags :Z (zerop eboy-rB))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
-            (eboy-set-flag eboy-flags :C b))
+            (eboy-set-flag eboy-flags :C (= b 1)))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x09 RRC C"
           (let ((b (logand eboy-rC #x01)))
@@ -1417,7 +1421,7 @@
             (eboy-set-flag eboy-flags :Z (zerop eboy-rC))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
-            (eboy-set-flag eboy-flags :C b))
+            (eboy-set-flag eboy-flags :C (= b 1)))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x0A RRC D"
           (let ((b (logand eboy-rD #x01)))
@@ -1425,7 +1429,7 @@
             (eboy-set-flag eboy-flags :Z (zerop eboy-rD))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
-            (eboy-set-flag eboy-flags :C b))
+            (eboy-set-flag eboy-flags :C (= b 1)))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x0B RRC E"
           (let ((b (logand eboy-rE #x01)))
@@ -1433,7 +1437,7 @@
             (eboy-set-flag eboy-flags :Z (zerop eboy-rE))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
-            (eboy-set-flag eboy-flags :C b))
+            (eboy-set-flag eboy-flags :C (= b 1)))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x0C RRC H"
           (let ((b (logand eboy-rH #x01)))
@@ -1441,7 +1445,7 @@
             (eboy-set-flag eboy-flags :Z (zerop eboy-rH))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
-            (eboy-set-flag eboy-flags :C b))
+            (eboy-set-flag eboy-flags :C (= b 1)))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x0D RRC L"
           (let ((b (logand eboy-rL #x01)))
@@ -1449,7 +1453,7 @@
             (eboy-set-flag eboy-flags :Z (zerop eboy-rL))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
-            (eboy-set-flag eboy-flags :C b))
+            (eboy-set-flag eboy-flags :C (= b 1)))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x0E RRC (HL) "
           (let* ((hlb (eboy-mem-read-byte (eboy-get-rHL)))
@@ -1459,7 +1463,7 @@
             (eboy-set-flag eboy-flags :Z (zerop hlbn))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
-            (eboy-set-flag eboy-flags :C b))
+            (eboy-set-flag eboy-flags :C (= b 1)))
           (incf eboy-clock-cycles 16))
         (lambda nil "0x0F RRC A"
           (let ((b (logand eboy-rA #x01)))
@@ -1467,11 +1471,11 @@
             (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
-            (eboy-set-flag eboy-flags :C b))
+            (eboy-set-flag eboy-flags :C (= b 1)))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x10 RL B"
           (let ((c (= (lsh eboy-rB -7) 1)))
-            (setq eboy-rB (logior (lsh eboy-rB 1) (if (eboy-get-flag eboy-flags :C) 1 0)))
+            (setq eboy-rB (logand (logior (lsh eboy-rB 1) (if (eboy-get-flag eboy-flags :C) 1 0)) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rB))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1479,7 +1483,7 @@
           (incf eboy-clock-cycles 8))
         (lambda nil "0x11 RL C"
           (let ((c (= (lsh eboy-rC -7) 1)))
-            (setq eboy-rC (logior (lsh eboy-rC 1) (if (eboy-get-flag eboy-flags :C) 1 0)))
+            (setq eboy-rC (logand (logior (lsh eboy-rC 1) (if (eboy-get-flag eboy-flags :C) 1 0)) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rC))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1487,7 +1491,7 @@
           (incf eboy-clock-cycles 8))
         (lambda nil "0x12 RL D"
           (let ((c (= (lsh eboy-rD -7) 1)))
-            (setq eboy-rD (logior (lsh eboy-rD 1) (if (eboy-get-flag eboy-flags :C) 1 0)))
+            (setq eboy-rD (logand (logior (lsh eboy-rD 1) (if (eboy-get-flag eboy-flags :C) 1 0)) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rD))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1495,7 +1499,7 @@
           (incf eboy-clock-cycles 8))
         (lambda nil "0x13 RL E"
           (let ((c (= (lsh eboy-rE -7) 1)))
-            (setq eboy-rE (logior (lsh eboy-rE 1) (if (eboy-get-flag eboy-flags :C) 1 0)))
+            (setq eboy-rE (logand (logior (lsh eboy-rE 1) (if (eboy-get-flag eboy-flags :C) 1 0)) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rE))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1503,7 +1507,7 @@
           (incf eboy-clock-cycles 8))
         (lambda nil "0x14 RL H"
           (let ((c (= (lsh eboy-rH -7) 1)))
-            (setq eboy-rH (logior (lsh eboy-rH 1) (if (eboy-get-flag eboy-flags :C) 1 0)))
+            (setq eboy-rH (logand (logior (lsh eboy-rH 1) (if (eboy-get-flag eboy-flags :C) 1 0)) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rH))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1511,7 +1515,7 @@
           (incf eboy-clock-cycles 8))
         (lambda nil "0x15 RL L"
           (let ((c (= (lsh eboy-rL -7) 1)))
-            (setq eboy-rL (logior (lsh eboy-rL 1) (if (eboy-get-flag eboy-flags :C) 1 0)))
+            (setq eboy-rL (logand (logior (lsh eboy-rL 1) (if (eboy-get-flag eboy-flags :C) 1 0)) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rL))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1528,7 +1532,7 @@
           (incf eboy-clock-cycles 16))
         (lambda nil "0x17 RL A"
           (let ((c (= (lsh eboy-rA -7) 1)))
-            (setq eboy-rA (logior (lsh eboy-rA 1) (if (eboy-get-flag eboy-flags :C) 1 0)))
+            (setq eboy-rA (logand (logior (lsh eboy-rA 1) (if (eboy-get-flag eboy-flags :C) 1 0)) #xFF))
             (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil)
@@ -1601,42 +1605,42 @@
           (incf eboy-clock-cycles 8))
         (lambda nil "0x20 SLA B"
           (eboy-set-flag eboy-flags :C (= (lsh eboy-rB -7) 1))
-          (setq eboy-rB (lsh eboy-rB 1))
+          (setq eboy-rB (logand (lsh eboy-rB 1) #xFF))
           (eboy-set-flag eboy-flags :Z (zerop eboy-rB))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H nil)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x21 SLA C"
           (eboy-set-flag eboy-flags :C (= (lsh eboy-rC -7) 1))
-          (setq eboy-rC (lsh eboy-rC 1))
+          (setq eboy-rC (logand (lsh eboy-rC 1) #xFF))
           (eboy-set-flag eboy-flags :Z (zerop eboy-rC))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H nil)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x22 SLA D"
           (eboy-set-flag eboy-flags :C (= (lsh eboy-rD -7) 1))
-          (setq eboy-rD (lsh eboy-rD 1))
+          (setq eboy-rD (logand (lsh eboy-rD 1) #xFF))
           (eboy-set-flag eboy-flags :Z (zerop eboy-rD))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H nil)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x23 SLA E"
           (eboy-set-flag eboy-flags :C (= (lsh eboy-rE -7) 1))
-          (setq eboy-rE (lsh eboy-rE 1))
+          (setq eboy-rE (logand (lsh eboy-rE 1) #xFF))
           (eboy-set-flag eboy-flags :Z (zerop eboy-rE))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H nil)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x24 SLA H"
           (eboy-set-flag eboy-flags :C (= (lsh eboy-rH -7) 1))
-          (setq eboy-rH (lsh eboy-rH 1))
+          (setq eboy-rH (logand (lsh eboy-rH 1) #xFF))
           (eboy-set-flag eboy-flags :Z (zerop eboy-rH))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H nil)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x25 SLA L"
           (eboy-set-flag eboy-flags :C (= (lsh eboy-rL -7) 1))
-          (setq eboy-rL (lsh eboy-rL 1))
+          (setq eboy-rL (logand (lsh eboy-rL 1) #xFF))
           (eboy-set-flag eboy-flags :Z (zerop eboy-rL))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H nil)
@@ -1651,7 +1655,7 @@
           (incf eboy-clock-cycles 16))
         (lambda nil "0x27 SLA A"
           (eboy-set-flag eboy-flags :C (= (lsh eboy-rA -7) 1))
-          (setq eboy-rA (lsh eboy-rA 1))
+          (setq eboy-rA (logand (lsh eboy-rA 1) #xFF))
           (eboy-set-flag eboy-flags :Z (zerop eboy-rA))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H nil)
@@ -1702,8 +1706,8 @@
           (let* ((hlb (eboy-mem-read-byte (eboy-get-rHL)))
                  (hlbn (logior (lsh hlb -1) (logand hlb #x80))))
             (eboy-set-flag eboy-flags :C (= (logand hlb #x01) 1))
-            (eboy-mem-write-byte (eboy-get-rHL) hlb)
-            (eboy-set-flag eboy-flags :Z (zerop hlb))
+            (eboy-mem-write-byte (eboy-get-rHL) hlbn)
+            (eboy-set-flag eboy-flags :Z (zerop hlbn))
             (eboy-set-flag eboy-flags :N nil)
             (eboy-set-flag eboy-flags :H nil))
           (incf eboy-clock-cycles 16))
@@ -1817,6 +1821,7 @@
           (let ((hl (eboy-mem-read-byte (eboy-get-rHL))))
             (eboy-set-flag eboy-flags :C (= (logand hl #x01) #x01))
             (setq hl (lsh hl -1))
+            (eboy-mem-write-byte (eboy-get-rHL) hl)
             (eboy-set-flag eboy-flags :Z (zerop hl))
             (eboy-set-flag eboy-flags :H nil)
             (eboy-set-flag eboy-flags :N nil))
@@ -1859,10 +1864,10 @@
           (eboy-set-flag eboy-flags :H t)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x46 BIT b,(HL) "
-          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-get-rHL) #x01) #x01))
+          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-mem-read-byte (eboy-get-rHL)) #x01) #x01))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H t)
-          (incf eboy-clock-cycles 16))
+          (incf eboy-clock-cycles 12))
         (lambda nil "0x47 BIT b,A"
           (eboy-set-flag eboy-flags :Z (/= (logand eboy-rA #x01) #x01))
           (eboy-set-flag eboy-flags :N nil)
@@ -1899,10 +1904,10 @@
           (eboy-set-flag eboy-flags :H t)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x4E "
-          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-get-rHL) #x02) #x02))
+          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-mem-read-byte (eboy-get-rHL)) #x02) #x02))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H t)
-          (incf eboy-clock-cycles 16))
+          (incf eboy-clock-cycles 12))
         (lambda nil "0x4F "
           (eboy-set-flag eboy-flags :Z (/= (logand eboy-rA #x02) #x02))
           (eboy-set-flag eboy-flags :N nil)
@@ -1939,10 +1944,10 @@
           (eboy-set-flag eboy-flags :H t)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x56 "
-          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-get-rHL) #x04) #x04))
+          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-mem-read-byte (eboy-get-rHL)) #x04) #x04))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H t)
-          (incf eboy-clock-cycles 16))
+          (incf eboy-clock-cycles 12))
         (lambda nil "0x57 "
           (eboy-set-flag eboy-flags :Z (/= (logand eboy-rA #x04) #x04))
           (eboy-set-flag eboy-flags :N nil)
@@ -1979,10 +1984,10 @@
           (eboy-set-flag eboy-flags :H t)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x5E "
-          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-get-rHL) #x08) #x08))
+          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-mem-read-byte (eboy-get-rHL)) #x08) #x08))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H t)
-          (incf eboy-clock-cycles 16))
+          (incf eboy-clock-cycles 12))
         (lambda nil "0x5F "
           (eboy-set-flag eboy-flags :Z (/= (logand eboy-rA #x08) #x08))
           (eboy-set-flag eboy-flags :N nil)
@@ -2019,10 +2024,10 @@
           (eboy-set-flag eboy-flags :H t)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x66 "
-          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-get-rHL) #x10) #x10))
+          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-mem-read-byte (eboy-get-rHL)) #x10) #x10))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H t)
-          (incf eboy-clock-cycles 16))
+          (incf eboy-clock-cycles 12))
         (lambda nil "0x67 "
           (eboy-set-flag eboy-flags :Z (/= (logand eboy-rA #x10) #x10))
           (eboy-set-flag eboy-flags :N nil)
@@ -2059,10 +2064,10 @@
           (eboy-set-flag eboy-flags :H t)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x6E "
-          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-get-rHL) #x20) #x20))
+          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-mem-read-byte (eboy-get-rHL)) #x20) #x20))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H t)
-          (incf eboy-clock-cycles 16))
+          (incf eboy-clock-cycles 12))
         (lambda nil "0x6F "
           (eboy-set-flag eboy-flags :Z (/= (logand eboy-rA #x20) #x20))
           (eboy-set-flag eboy-flags :N nil)
@@ -2099,10 +2104,10 @@
           (eboy-set-flag eboy-flags :H t)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x76 "
-          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-get-rHL) #x40) #x40))
+          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-mem-read-byte (eboy-get-rHL)) #x40) #x40))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H t)
-          (incf eboy-clock-cycles 16))
+          (incf eboy-clock-cycles 12))
         (lambda nil "0x77 "
           (eboy-set-flag eboy-flags :Z (/= (logand eboy-rA #x40) #x40))
           (eboy-set-flag eboy-flags :N nil)
@@ -2139,10 +2144,10 @@
           (eboy-set-flag eboy-flags :H t)
           (incf eboy-clock-cycles 8))
         (lambda nil "0x7E "
-          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-get-rHL) #x80) #x80))
+          (eboy-set-flag eboy-flags :Z (/= (logand (eboy-mem-read-byte (eboy-get-rHL)) #x80) #x80))
           (eboy-set-flag eboy-flags :N nil)
           (eboy-set-flag eboy-flags :H t)
-          (incf eboy-clock-cycles 16))
+          (incf eboy-clock-cycles 12))
         (lambda nil "0x7F "
           (eboy-set-flag eboy-flags :Z (/= (logand eboy-rA #x80) #x80))
           (eboy-set-flag eboy-flags :N nil)
@@ -2167,7 +2172,7 @@
           (setq eboy-rL (logand eboy-rL #xFE))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x86 RES b,(HL) "
-          (eboy-set-rHL (logand (eboy-get-rHL) #xFE))
+          (eboy-mem-write-byte (eboy-get-rHL) (logand (eboy-mem-read-byte (eboy-get-rHL)) #xFE))
           (incf eboy-clock-cycles 16))
         (lambda nil "0x87 RES b,A"
           (setq eboy-rA (logand eboy-rA #xFE))
@@ -2191,7 +2196,7 @@
           (setq eboy-rL (logand eboy-rL #xFD))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x8E "
-          (eboy-set-rHL (logand (eboy-get-rHL) #xFD))
+          (eboy-mem-write-byte (eboy-get-rHL) (logand (eboy-mem-read-byte (eboy-get-rHL)) #xFD))
           (incf eboy-clock-cycles 16))
         (lambda nil "0x8F "
           (setq eboy-rA (logand eboy-rA #xFD))
@@ -2215,7 +2220,7 @@
           (setq eboy-rL (logand eboy-rL #xFB))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x96 "
-          (eboy-set-rHL (logand (eboy-get-rHL) #xFB))
+          (eboy-mem-write-byte (eboy-get-rHL) (logand (eboy-mem-read-byte (eboy-get-rHL)) #xFB))
           (incf eboy-clock-cycles 16))
         (lambda nil "0x97 "
           (setq eboy-rA (logand eboy-rA #xFB))
@@ -2239,7 +2244,7 @@
           (setq eboy-rL (logand eboy-rL #xF7))
           (incf eboy-clock-cycles 8))
         (lambda nil "0x9E "
-          (eboy-set-rHL (logand (eboy-get-rHL) #xF7))
+          (eboy-mem-write-byte (eboy-get-rHL) (logand (eboy-mem-read-byte (eboy-get-rHL)) #xF7))
           (incf eboy-clock-cycles 16))
         (lambda nil "0x9F "
           (setq eboy-rA (logand eboy-rA #xF7))
@@ -2263,7 +2268,7 @@
           (setq eboy-rL (logand eboy-rL #xEF))
           (incf eboy-clock-cycles 8))
         (lambda nil "0xA6 "
-          (eboy-set-rHL (logand (eboy-get-rHL) #xEF))
+          (eboy-mem-write-byte (eboy-get-rHL) (logand (eboy-mem-read-byte (eboy-get-rHL)) #xEF))
           (incf eboy-clock-cycles 16))
         (lambda nil "0xA7 "
           (setq eboy-rA (logand eboy-rA #xEF))
@@ -2287,7 +2292,7 @@
           (setq eboy-rL (logand eboy-rL #xDF))
           (incf eboy-clock-cycles 8))
         (lambda nil "0xAE "
-          (eboy-set-rHL (logand (eboy-get-rHL) #xDF))
+          (eboy-mem-write-byte (eboy-get-rHL) (logand (eboy-mem-read-byte (eboy-get-rHL)) #xDF))
           (incf eboy-clock-cycles 16))
         (lambda nil "0xAF "
           (setq eboy-rA (logand eboy-rA #xDF))
@@ -2311,7 +2316,7 @@
           (setq eboy-rL (logand eboy-rL #xBF))
           (incf eboy-clock-cycles 8))
         (lambda nil "0xB6 "
-          (eboy-set-rHL (logand (eboy-get-rHL) #xBF))
+          (eboy-mem-write-byte (eboy-get-rHL) (logand (eboy-mem-read-byte (eboy-get-rHL)) #xBF))
           (incf eboy-clock-cycles 16))
         (lambda nil "0xB7 "
           (setq eboy-rA (logand eboy-rA #xBF))
@@ -2335,7 +2340,7 @@
           (setq eboy-rL (logand eboy-rL #x7F))
           (incf eboy-clock-cycles 8))
         (lambda nil "0xBE "
-          (eboy-set-rHL (logand (eboy-get-rHL) #x7F))
+          (eboy-mem-write-byte (eboy-get-rHL) (logand (eboy-mem-read-byte (eboy-get-rHL)) #x7F))
           (incf eboy-clock-cycles 16))
         (lambda nil "0xBF "
           (setq eboy-rA (logand eboy-rA #x7F))
@@ -2359,7 +2364,7 @@
           (setq eboy-rL (logior eboy-rL #x01))
           (incf eboy-clock-cycles 8))
         (lambda nil "0xC6 SET b,(HL) "
-          (eboy-set-rHL (logior (eboy-get-rHL) #x01))
+          (eboy-mem-write-byte (eboy-get-rHL) (logior (eboy-mem-read-byte (eboy-get-rHL)) #x01))
           (incf eboy-clock-cycles 16))
         (lambda nil "0xC7 SET b,A"
           (setq eboy-rA (logior eboy-rA #x01))
@@ -2383,7 +2388,7 @@
           (setq eboy-rL (logior eboy-rL #x02))
           (incf eboy-clock-cycles 8))
         (lambda nil "0xCE SET b,(HL) "
-          (eboy-set-rHL (logior (eboy-get-rHL) #x02))
+          (eboy-mem-write-byte (eboy-get-rHL) (logior (eboy-mem-read-byte (eboy-get-rHL)) #x02))
           (incf eboy-clock-cycles 16))
         (lambda nil "0xCF SET b,A"
           (setq eboy-rA (logior eboy-rA #x02))
@@ -2407,7 +2412,7 @@
           (setq eboy-rL (logior eboy-rL #x04))
           (incf eboy-clock-cycles 8))
         (lambda nil "0xD6 SET b,(HL) "
-          (eboy-set-rHL (logior (eboy-get-rHL) #x04))
+          (eboy-mem-write-byte (eboy-get-rHL) (logior (eboy-mem-read-byte (eboy-get-rHL)) #x04))
           (incf eboy-clock-cycles 16))
         (lambda nil "0xD7 SET b,A"
           (setq eboy-rA (logior eboy-rA #x04))
@@ -2431,7 +2436,7 @@
           (setq eboy-rL (logior eboy-rL #x08))
           (incf eboy-clock-cycles 8))
         (lambda nil "0xDE SET b,(HL) "
-          (eboy-set-rHL (logior (eboy-get-rHL) #x08))
+          (eboy-mem-write-byte (eboy-get-rHL) (logior (eboy-mem-read-byte (eboy-get-rHL)) #x08))
           (incf eboy-clock-cycles 16))
         (lambda nil "0xDF SET b,A"
           (setq eboy-rA (logior eboy-rA #x08))
@@ -2455,7 +2460,7 @@
           (setq eboy-rL (logior eboy-rL #x10))
           (incf eboy-clock-cycles 8))
         (lambda nil "0xE6 SET b,(HL) "
-          (eboy-set-rHL (logior (eboy-get-rHL) #x10))
+          (eboy-mem-write-byte (eboy-get-rHL) (logior (eboy-mem-read-byte (eboy-get-rHL)) #x10))
           (incf eboy-clock-cycles 16))
         (lambda nil "0xE7 SET b,A"
           (setq eboy-rA (logior eboy-rA #x10))
@@ -2479,7 +2484,7 @@
           (setq eboy-rL (logior eboy-rL #x20))
           (incf eboy-clock-cycles 8))
         (lambda nil "0xEE SET b,(HL) "
-          (eboy-set-rHL (logior (eboy-get-rHL) #x20))
+          (eboy-mem-write-byte (eboy-get-rHL) (logior (eboy-mem-read-byte (eboy-get-rHL)) #x20))
           (incf eboy-clock-cycles 16))
         (lambda nil "0xEF SET b,A"
           (setq eboy-rA (logior eboy-rA #x20))
@@ -2503,7 +2508,7 @@
           (setq eboy-rL (logior eboy-rL #x40))
           (incf eboy-clock-cycles 8))
         (lambda nil "0xF6 SET b,(HL) "
-          (eboy-set-rHL (logior (eboy-get-rHL) #x40))
+          (eboy-mem-write-byte (eboy-get-rHL) (logior (eboy-mem-read-byte (eboy-get-rHL)) #x40))
           (incf eboy-clock-cycles 16))
         (lambda nil "0xF7 SET b,A"
           (setq eboy-rA (logior eboy-rA #x40))
@@ -2527,7 +2532,7 @@
           (setq eboy-rL (logior eboy-rL #x80))
           (incf eboy-clock-cycles 8))
         (lambda nil "0xFE SET b,(HL) "
-          (eboy-set-rHL (logior (eboy-get-rHL) #x80))
+          (eboy-mem-write-byte (eboy-get-rHL) (logior (eboy-mem-read-byte (eboy-get-rHL)) #x80))
           (incf eboy-clock-cycles 16))
         (lambda nil "0xFF SET b,A"
           (setq eboy-rA (logior eboy-rA #x80))

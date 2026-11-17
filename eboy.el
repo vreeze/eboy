@@ -131,6 +131,9 @@
 (defvar eboy-ram-bank-nr 0 "The currently selected RAM bank.")
 (defvar eboy-mem-bank-type nil "The memorybank type of the ROM.")
 (defvar eboy-ram-bank-enable nil "RAM bank is enabled.")
+(defvar eboy-rom-banking-mode t "MBC1 banking mode: t = ROM banking (mode 0), nil = RAM banking (mode 1).")
+(defvar eboy-mbc1-bank-low 1 "MBC1 5-bit ROM bank register.")
+(defvar eboy-mbc1-bank-high 0 "MBC1 2-bit register: upper ROM bank bits or RAM bank number.")
 
 
 (defun eboy-byte-to-signed (byte)
@@ -397,32 +400,39 @@
    ;; 32kB Cartidge
    ((and (>= address #x0000) (< address #x8000))
     (cond
-     ((and (>= address #x0000) (< address #x2000))
-      ;; RAM Enable
-      (when (or (eq eboy-mem-bank-type 'mbc1)
-                (and (eq eboy-mem-bank-type 'mbc2) (= (logand address #x0100) #x0000)))
-        (setq eboy-ram-bank-enable (= (logand data #x0F) #x0A))))
-
-     ((and (>= address #x2000) (< address #x4000))
-      ;; ROM Bank Number
+     ((eq eboy-mem-bank-type 'mbc1)
       (cond
-       ((eq eboy-mem-bank-type 'mbc1) (setq eboy-rom-bank-nr (logior (logand eboy-rom-bank-nr #xE0) (logand data #x1F))))
-       ((eq eboy-mem-bank-type 'mbc2) (setq eboy-rom-bank-nr (logand data #x0F))))
-      (when (or (= eboy-rom-bank-nr #x00) (= eboy-rom-bank-nr #x20) (= eboy-rom-bank-nr #x40) (= eboy-rom-bank-nr #x60))
-        (incf eboy-rom-bank-nr)))
+       ((< address #x2000)              ; RAM Enable
+        (setq eboy-ram-bank-enable (= (logand data #x0F) #x0A)))
+       ((< address #x4000)              ; ROM Bank Number, lower 5 bits; 0 acts as 1
+        (setq eboy-mbc1-bank-low (max 1 (logand data #x1F)))
+        (eboy-mbc1-update-banks))
+       ((< address #x6000)              ; RAM Bank Number / Upper Bits of ROM Bank
+        (setq eboy-mbc1-bank-high (logand data #x03))
+        (eboy-mbc1-update-banks))
+       (t                               ; ROM/RAM Mode Select
+        (setq eboy-rom-banking-mode (zerop (logand data #x01)))
+        (eboy-mbc1-update-banks))))
+     ((eq eboy-mem-bank-type 'mbc2)
+      ;; Address bit 8 chooses: 0 = RAM Enable, 1 = ROM Bank Number.
+      (when (< address #x4000)
+        (if (zerop (logand address #x0100))
+            (setq eboy-ram-bank-enable (= (logand data #x0F) #x0A))
+          (eboy-mbc-set-rom-bank (max 1 (logand data #x0F))))))))))
 
-     ((and (>= address #x4000) (< address #x6000))
-      ;; RAM Bank Number / Upper Bits of ROM Bank
-      (when (eq eboy-mem-bank-type 'mbc1)
-        (if eboy-rom-banking-mode
-            (setq eboy-rom-bank-nr (logior (logand eboy-rom-bank-nr #x1F) (logand data #xE0)))
-          (setq eboy-ram-bank-nr (logand data #x03)))))
+(defun eboy-mbc-set-rom-bank (bank)
+  "Map ROM BANK at #x4000-#x7FFF, wrapped to the size of the ROM."
+  (setq eboy-rom-bank-nr (logand bank (1- (max 2 (/ eboy-rom-size #x4000))))))
 
-     ((and (>= address #x6000) (< address #x8000))
-      ;; ROM/RAM Mode Select
-      (when (eq eboy-mem-bank-type 'mbc1)
-        (setq eboy-rom-banking-mode (= (logand data #x01) 0)))))
-    )))
+(defun eboy-mbc1-update-banks ()
+  "Recompute the ROM and RAM bank from the MBC1 registers and mode.
+In ROM banking mode the 2-bit register adds the upper ROM bank bits, in RAM
+banking mode it selects the RAM bank."
+  (if eboy-rom-banking-mode
+      (progn (eboy-mbc-set-rom-bank (logior (ash eboy-mbc1-bank-high 5) eboy-mbc1-bank-low))
+             (setq eboy-ram-bank-nr 0))
+    (eboy-mbc-set-rom-bank eboy-mbc1-bank-low)
+    (setq eboy-ram-bank-nr eboy-mbc1-bank-high)))
 
 (defun eboy-mem-write-short (address data)
   "Write DATA short to memory at ADDRESS.
@@ -894,6 +904,9 @@ several windows alone."
   (setq eboy-ram-bank-nr 0)
   (setq eboy-mem-bank-type nil)
   (setq eboy-ram-bank-enable nil)
+  (setq eboy-rom-banking-mode t)
+  (setq eboy-mbc1-bank-low 1)
+  (setq eboy-mbc1-bank-high 0)
 
   (setq eboy-cpu-halted nil)
 

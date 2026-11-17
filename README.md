@@ -70,10 +70,9 @@ make test-visual              # ... the same, one after another on screen
 make bench                    # performance benchmarks, see performance.org
 ```
 
-`make test` takes about 40 seconds and `make test-visual` about 4 minutes
-(Apple M1). About half of that is the two tests that hang until the
-40-emulated-second timeout; set `EBOY_BLARGG_TIMEOUT` (in emulated seconds)
-to change it.
+`make test` takes about 17 seconds and `make test-visual` about 2 minutes
+(Apple M1). A test that doesn't finish within 40 emulated seconds counts as
+hanging; set `EBOY_BLARGG_TIMEOUT` (in emulated seconds) to change that.
 
 To watch a single Blargg test on screen instead, run its rom with `make run`,
 for example `make run ROM="roms/blargg/cpu_instrs/06-ld r,r.gb"`. The result
@@ -84,18 +83,5 @@ first time (`make roms`); they are not part of the repository.
 
 ## Blargg's test roms status
 
-Output of `make test` (cpu_instrs):
-
-| Test                    | Result                                       |
-|-------------------------|----------------------------------------------|
-| 01-special              | Hangs, without giving an error               |
-| 02-interrupts           | Passed                                       |
-| 03-op sp,hl             | Failed: F8 F8                                |
-| 04-op r,imm             | Failed: C6 DE                                |
-| 05-op rp                | Passed                                       |
-| 06-ld r,r               | Passed                                       |
-| 07-jr,jp,call,ret,rst   | Hangs, without giving an error               |
-| 08-misc instrs          | Passed                                       |
-| 09-op r,r               | Failed: rotate instructions (07 17 0F, CB 00-27) |
-| 10-bit ops              | Passed                                       |
-| 11-op a,(hl)            | Failed: CB ops on (HL), 27 (DAA)             |
+All of Blargg's `cpu_instrs` tests pass: the 11 individual roms (`make test`)
+and the combined `cpu_instrs.gb` (which also exercises MBC1 bank switching).

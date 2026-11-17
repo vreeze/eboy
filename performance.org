@@ -124,3 +124,28 @@ take more than half the time.
   faster overall.
 - The first targets are clear: the input wait (~30–50%), then redisplay and
   building the frame text.
+
+* New baseline: after the CPU bug fixes (all Blargg cpu_instrs tests pass)
+
+This is the baseline the optimisations are measured against from here on.
+The fixes made all 11 individual =cpu_instrs= tests and the combined
+=cpu_instrs.gb= pass (see the README); they don't change speed: every row is
+within noise of the first baseline.  Raw output:
+[[file:bench/results-bugfixes.txt][bench/results-bugfixes.txt]].
+
+| Benchmark (10-bit ops ROM) | Byte-compiled  | Native-compiled |
+|----------------------------+----------------+-----------------|
+| cpu-only                   | 0.93M instr/s  | 1.77M instr/s   |
+|                            | 191% GB speed  | 363% GB speed   |
+| render-build               | 39.0 ms/frame  | 17.7 ms/frame   |
+| render+redisplay           | 118.5 ms/frame | 102.1 ms/frame  |
+
+| Run (10-bit ops ROM) | Mode   | Wall time | GB speed | Drawn fps | Display | Input wait | Emulation |
+|----------------------+--------+-----------+----------+-----------+---------+------------+-----------|
+| skip=20 (default)    | byte   | 10.97 s   | 91.5%    | 2.55      | 27%     | 26%        | 48%       |
+| skip=20 (default)    | native | 8.05 s    | 124.8%   | 3.48      | 29%     | 36%        | 35%       |
+| skip=0 (every frame) | byte   | 13.09 s   | 7.7%     | 4.59      | 49%     | 46%        | 5%        |
+| skip=0 (every frame) | native | 11.89 s   | 8.4%     | 5.05      | 45%     | 53%        | 3%        |
+
+Synthetic workload: cpu-only 199% (byte) / 296% (native); skip=20 92.0% /
+114.5%; skip=0 4.51 / 5.04 drawn fps.
